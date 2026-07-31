@@ -37,10 +37,18 @@ class VarscoContentApiCheckout(http.Controller):
         )
         return set(items.product_template_ids.ids)
 
+    @staticmethod
+    def _owned_by_partner(partner, candidate_id):
+        """A shipping/billing target must be the buyer themselves or their
+        own contact — never an arbitrary client-supplied partner id
+        (security.md's ACL rule: always scope to the authenticated
+        partner, never a client-supplied one)."""
+        return candidate_id == partner.id or candidate_id in partner.child_ids.ids
+
     @http.route(
         f"{API_PREFIX}/store/checkout",
         type="http",
-        auth="user",
+        auth="public",
         methods=["POST"],
         csrf=False,
     )
@@ -79,6 +87,10 @@ class VarscoContentApiCheckout(http.Controller):
 
         shipping_partner_id = payload.get("shipping_partner_id") or partner.id
         billing_partner_id = payload.get("billing_partner_id") or partner.id
+        if not self._owned_by_partner(partner, shipping_partner_id):
+            return self._bad_request("invalid_shipping_partner_id")
+        if not self._owned_by_partner(partner, billing_partner_id):
+            return self._bad_request("invalid_billing_partner_id")
 
         order = (
             request.env["sale.order"]
