@@ -37,7 +37,8 @@ confirming closed before portal auth goes live in production.
 - Read endpoints: `auth="public"`, explicit field allow-lists, no
   cost/margin/internal fields (`architecture.md` §5, `data-model.md`).
 - `POST /api/v1/leads`: bearer-token authenticated, validated
-  (`REQUIRED_FIELDS` in `leads.py`).
+  (`REQUIRED_FIELDS` in `leads.py`, plus `email` format via
+  `odoo.tools.mail.single_email_re`).
 - `POST /api/v1/store/checkout`: `auth="user"`, and every line item is
   re-validated server-side against `item_type == "purchasable_now"` and
   live `qty_available` — the frontend hiding non-purchasable items from its
@@ -53,8 +54,15 @@ confirming closed before portal auth goes live in production.
   to log servers — clean transaction indices and error codes only.
 - **CORS**: the frontend's own BFF layer (not this module) is expected to
   enforce an origin allowlist for its own `/api/*` routes; Odoo itself
-  should reject cross-origin browser calls to `/api/v1/*` that don't come
-  through that server-side proxy.
+  rejects cross-origin browser calls to `/api/v1/*` that don't come through
+  that server-side proxy — `controllers/base.py`'s `require_trusted_origin()`
+  checks the `Origin` header (when present — server-to-server BFF calls send
+  none) against `varsco_content_api.allowed_frontend_origin`
+  (`ir.config_parameter`, default `https://varsco.com`) on
+  `POST /api/v1/store/checkout` and `PUT /api/v1/portal/profile`, the two
+  mutating session-cookie-authenticated routes. This closes the form/fetch
+  CSRF gap that `csrf=False` (required since this API can't hand out an
+  Odoo-rendered CSRF token to a cross-origin caller) otherwise leaves open.
 
 ## 4. Rate limiting & anti-spam
 

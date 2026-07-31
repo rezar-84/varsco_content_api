@@ -3,7 +3,7 @@ import json
 from odoo import http
 from odoo.http import request
 
-from .base import API_PREFIX
+from .base import API_PREFIX, require_trusted_origin
 
 
 class VarscoContentApiCheckout(http.Controller):
@@ -53,6 +53,9 @@ class VarscoContentApiCheckout(http.Controller):
         csrf=False,
     )
     def checkout(self, **kwargs):
+        rejection = require_trusted_origin()
+        if rejection:
+            return rejection
         partner = self._portal_partner()
         if not partner:
             return self._unauthorized()

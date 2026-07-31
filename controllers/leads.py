@@ -3,6 +3,7 @@ import json
 
 from odoo import http
 from odoo.http import request
+from odoo.tools.mail import single_email_re
 
 from .base import API_PREFIX
 
@@ -59,6 +60,8 @@ class VarscoContentApiLeads(http.Controller):
         missing = [field for field in self.REQUIRED_FIELDS if not payload.get(field)]
         if missing:
             return self._bad_request(f"missing_fields:{','.join(missing)}")
+        if not single_email_re.match(payload["email"]):
+            return self._bad_request("invalid_email")
 
         medium = request.env.ref("utm.utm_medium_website", raise_if_not_found=False)
         lead = (

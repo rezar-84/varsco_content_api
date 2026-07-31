@@ -67,3 +67,29 @@ class TestPortalApi(HttpCase):
         self.partner.invalidate_recordset()
         self.assertEqual(self.partner.phone, "+90 555 111 2233")
         self.assertEqual(self.partner.company_name, "New Co")
+
+    def test_profile_update_rejects_cross_origin_request(self):
+        """A browser holding a real erp.varsco.com session cookie (e.g. via
+        /web/login directly) must not be CSRF'd into a profile write from an
+        unrelated site — docs/security.md §3's promise that Odoo rejects
+        cross-origin browser calls outside the sanctioned frontend proxy."""
+        self.authenticate("portal.buyer@example.com", self.password)
+        response = self.url_open(
+            "/api/v1/portal/profile",
+            data=json.dumps({"phone": "+90 555 999 8888"}).encode(),
+            headers={"Content-Type": "application/json", "Origin": "https://evil.example.com"},
+            method="PUT",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.partner.invalidate_recordset()
+        self.assertNotEqual(self.partner.phone, "+90 555 999 8888")
+
+    def test_profile_update_allows_configured_frontend_origin(self):
+        self.authenticate("portal.buyer@example.com", self.password)
+        response = self.url_open(
+            "/api/v1/portal/profile",
+            data=json.dumps({"phone": "+90 555 111 2233"}).encode(),
+            headers={"Content-Type": "application/json", "Origin": "https://varsco.com"},
+            method="PUT",
+        )
+        self.assertEqual(response.status_code, 200)

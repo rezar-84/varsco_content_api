@@ -4,7 +4,7 @@ from odoo import http
 from odoo.exceptions import AccessDenied
 from odoo.http import request
 
-from .base import API_PREFIX
+from .base import API_PREFIX, require_trusted_origin
 
 
 class VarscoContentApiPortal(http.Controller):
@@ -118,6 +118,9 @@ class VarscoContentApiPortal(http.Controller):
         csrf=False,
     )
     def portal_profile_update(self, **kwargs):
+        rejection = require_trusted_origin()
+        if rejection:
+            return rejection
         partner = self._portal_partner()
         if not partner:
             return self._unauthorized()

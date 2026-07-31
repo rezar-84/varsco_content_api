@@ -59,13 +59,15 @@ class TestCheckoutApi(HttpCase):
             cls.product, warehouse.lot_stock_id, 10
         )
 
-    def _checkout(self, **payload_overrides):
+    def _checkout(self, headers=None, **payload_overrides):
         payload = {"items": [{"product_id": self.product.id, "qty": 1}]}
         payload.update(payload_overrides)
+        request_headers = {"Content-Type": "application/json"}
+        request_headers.update(headers or {})
         return self.url_open(
             "/api/v1/store/checkout",
             data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
+            headers=request_headers,
         )
 
     def test_checkout_requires_authentication(self):
@@ -96,3 +98,17 @@ class TestCheckoutApi(HttpCase):
         self.authenticate("checkout.buyer@example.com", self.password)
         response = self._checkout(billing_partner_id=self.stranger.id)
         self.assertEqual(response.status_code, 400)
+
+    def test_checkout_rejects_cross_origin_request(self):
+        """A form/fetch-based CSRF from an unrelated site must not be able
+        to place a real sale.order using a genuine erp.varsco.com session
+        cookie (docs/security.md §3)."""
+        self.authenticate("checkout.buyer@example.com", self.password)
+        response = self._checkout(headers={"Origin": "https://evil.example.com"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.env["sale.order"].search_count([("partner_id", "=", self.partner.id)]), 0)
+
+    def test_checkout_allows_configured_frontend_origin(self):
+        self.authenticate("checkout.buyer@example.com", self.password)
+        response = self._checkout(headers={"Origin": "https://varsco.com"})
+        self.assertEqual(response.status_code, 200)

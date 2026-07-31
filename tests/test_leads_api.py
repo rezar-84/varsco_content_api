@@ -38,6 +38,14 @@ class TestLeadsApi(HttpCase):
         response = self._post({"name": "A", "email": "a@example.com"}, token=self.token)
         self.assertEqual(response.status_code, 400)
 
+    def test_malformed_email_is_bad_request(self):
+        response = self._post(
+            {"name": "A", "email": "not-an-email", "message": "hi", "source": "test"},
+            token=self.token,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.env["crm.lead"].sudo().search_count([("contact_name", "=", "A")]), 0)
+
     def test_valid_lead_creates_crm_lead(self):
         response = self._post(
             {
