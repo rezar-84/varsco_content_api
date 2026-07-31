@@ -1,0 +1,147 @@
+# Architecture
+
+## 1. Principle
+
+**This repository is a secure Odoo 19 API/middleware module** — nothing
+more. It exposes a narrow, versioned HTTP contract that an external
+frontend (currently `aqua-bloom-portal`, a separate repository) calls for
+authentication, CRM lead capture, product catalog browsing, and checkout.
+Odoo remains the single source of truth for all business data; this repo
+never renders a public page or owns presentation.
+
+```
+External frontend (aqua-bloom-portal, separate repo)
+        │  BFF/server-side calls only — see below
+        ▼
+varsco_content_api (this repo, Odoo addon)
+        │
+Odoo 19 backend
+   ├─ CRM (leads, `crm@`/`leads@` notification pipeline)
+   ├─ Sales/stock (checkout, orders, pricing)
+   └─ Portal (auth, profile, order history)
+```
+
+The frontend owns everything about how it talks to Odoo — its own
+BFF/server-route layer, session-cookie handling, CORS, rate limiting, and
+Zod input validation on the client side of the contract. This repo's job
+stops at the Odoo boundary: validate, authorize, and never leak more than
+the allow-listed contract below.
+
+## 2. `varsco_content_api` (the contract)
+
+A thin Odoo module exposing:
+- **Public catalog reads** (`auth="public"`): cacheable, allow-listed
+  fields only — never cost/margin/internal fields.
+- **Secure server-to-server writes** (`auth="public"` + bearer
+  `write_token`): used by the frontend's *server*, never its browser.
+- **Customer-portal reads/writes** (`auth="user"`, Odoo session cookie):
+  scoped to the authenticated partner via record rules
+  (`docs/security.md`).
+
+Versioned under `/api/v1/`. Breaking changes → `/api/v2/` + deprecation
+window. The contract in §5 is a shared interface with a separate repo —
+changing it is a `CLAUDE.md` §6 guardrail.
+
+> An earlier version of this module also served a full content-management
+> layer (pages/sections, blog, nav menu, redirects) for a since-discontinued
+> Astro frontend built in this same repo. That layer is archived, not
+> deleted — see `archive/README.md` and `archive/docs/data-model-cms.md` —
+> and is not part of the active contract below.
+
+## 3. Data flow
+
+**Catalog browsing:** frontend calls `GET /api/v1/products/{locale}` and
+`GET /api/v1/products/{locale}/{url_path}` → curated `varsco.catalog.item`
+data, price/stock only when `item_type == "purchasable_now"`.
+
+**Lead capture:** visitor submits a form on the frontend → frontend's
+*server* validates → `POST /api/v1/leads` (bearer-token authenticated) →
+Odoo creates `crm.lead` → existing `crm@`/`leads@` notification pipeline
+fires.
+
+**Portal auth:** `POST /api/v1/portal/auth/login` → Odoo's native
+`request.session.authenticate` → frontend maps the resulting Odoo session
+id into its own httpOnly cookie for subsequent `auth="user"` calls
+(`GET /api/v1/portal/orders`, `PUT /api/v1/portal/profile`).
+
+**Checkout:** `POST /api/v1/store/checkout` (session-authenticated) →
+server-side re-validation of every line against
+`item_type == "purchasable_now"` and live stock → draft `sale.order`.
+
+## 4. Cross-cutting concerns
+
+- **i18n** — locales are data (`varsco.content.locale`), not code; a client
+  deployment's active locale list is a data change (`decisions.md` ADR-003).
+  Only `reviewed` translations are ever served.
+- **Field discipline** — every endpoint declares an explicit allow-list of
+  Odoo fields. Cost, margin, internal notes, partner PII, and any
+  write-capable route are forbidden on public endpoints. When adding a
+  field, ask: "would VARS be unhappy if a competitor scraped this?" If yes,
+  it doesn't go on a public endpoint.
+- **Security** — see `docs/security.md`: write-token handling, portal
+  session-cookie posture, CORS, and record-rule scoping are the frontend's
+  and this module's shared responsibility at the API boundary.
+- **SEO/rendering/edge/CDN** — entirely the frontend's concern now; this
+  repo has no rendering, caching, or deploy-topology responsibility for
+  public pages.
+
+## 5. Content API contract (`/api/v1`)
+
+> This is a **shared interface** with `aqua-bloom-portal` (separate repo,
+> see its `doc/odoo_api_spec.md` for the frontend-side view of the same
+> contract). Treat it like a public API: additive changes are fine,
+> breaking changes need a version bump and human sign-off.
+
+Public read endpoints (`auth="public"`, cacheable):
+
+| Method | Path | Returns |
+|--------|------|---------|
+| GET | `/api/v1/products/{locale}` | Curated public catalog-item list; never raw Odoo product records |
+| GET | `/api/v1/products/{locale}/{url_path}` | One curated catalog item: localized copy, media, specifications, quote CTA, price/stock if `purchasable_now` |
+
+Secure server-to-server write (bearer token):
+
+| Method | Path | Body → effect |
+|--------|------|---------------|
+| POST | `/api/v1/leads` | `{name, email, company?, message, source, cart_summary?}` → creates `crm.lead` |
+
+Customer-portal endpoints (`auth="user"`, session-cookie authenticated):
+
+| Method | Path | Effect |
+|--------|------|--------|
+| POST | `/api/v1/portal/auth/login` | Authenticates via Odoo session, returns partner summary |
+| GET | `/api/v1/portal/orders` | Lists the authenticated partner's `sale.order`s |
+| PUT | `/api/v1/portal/profile` | Allow-listed `res.partner` field update |
+| POST | `/api/v1/store/checkout` | Validates + creates a draft `sale.order` |
+
+**Presentation discipline:** catalog `description_html`/media fields
+contain sanitized semantic prose, media references, and identifiers only —
+never Odoo/QWeb layout markup, classes, inline styles, scripts, or
+snippets. The frontend is the only public presentation implementation.
+
+## 6. Repository layout
+
+This repository *is* the addon — the repo root is the module's technical
+name (`varsco_content_api`), so it can be cloned directly into an Odoo
+`addons_path` directory and installed via the web interface (Apps →
+Update Apps List) without any extra nesting.
+
+```
+controllers/   models/   tests/   security/   data/   __manifest__.py
+docs/                      # this documentation set
+```
+
+Historical note: earlier development happened inside a monorepo
+(`varsco_front`, formerly `varsco-web`) that also built a since-discontinued
+Astro frontend and CMS content layer; that repo's `archive/` still holds
+that material for reference. This repo carries forward only the active
+middleware module and its current docs.
+
+## 7. Template reuse (agency goal)
+
+varsco.com is the reference build. To keep it reusable:
+- `varsco_content_api` is a generic addon parameterized by Odoo config, not
+  a varsco fork.
+- A new client = new Odoo instance + new frontend pointed at the same
+  `/api/v1` contract. Anything that would block that is a design smell —
+  flag it.

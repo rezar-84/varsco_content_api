@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- The 7 live varsco.com locales with their exact URL scheme (ADR-003):
+             en is the default and unprefixed; all others carry a path prefix.
+             ko keeps the full ko_KR code used by the live site. -->
+        <record id="locale_en" model="varsco.content.locale">
+            <field name="name">English</field>
+            <field name="code">en</field>
+            <field name="url_prefix"></field>
+            <field name="is_default" eval="True"/>
+            <field name="sequence">1</field>
+        </record>
+        <record id="locale_ar" model="varsco.content.locale">
+            <field name="name">Arabic</field>
+            <field name="code">ar</field>
+            <field name="url_prefix">/ar</field>
+            <field name="sequence">2</field>
+        </record>
+        <record id="locale_de" model="varsco.content.locale">
+            <field name="name">German</field>
+            <field name="code">de</field>
+            <field name="url_prefix">/de</field>
+            <field name="sequence">3</field>
+        </record>
+        <record id="locale_ja" model="varsco.content.locale">
+            <field name="name">Japanese</field>
+            <field name="code">ja</field>
+            <field name="url_prefix">/ja</field>
+            <field name="sequence">4</field>
+        </record>
+        <record id="locale_ko" model="varsco.content.locale">
+            <field name="name">Korean</field>
+            <field name="code">ko_KR</field>
+            <field name="url_prefix">/ko_KR</field>
+            <field name="sequence">5</field>
+        </record>
+        <record id="locale_ru" model="varsco.content.locale">
+            <field name="name">Russian</field>
+            <field name="code">ru</field>
+            <field name="url_prefix">/ru</field>
+            <field name="sequence">6</field>
+        </record>
+        <record id="locale_tr" model="varsco.content.locale">
+            <field name="name">Turkish</field>
+            <field name="code">tr</field>
+            <field name="url_prefix">/tr</field>
+            <field name="sequence">7</field>
+        </record>
+    </data>
+</odoo>
