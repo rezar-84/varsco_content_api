@@ -244,3 +244,64 @@ managed marketing pages) without it cluttering the active surface area.
   archived module imports them back from the active one.
 - No behavior change to any live endpoint from this ADR alone — this is a
   repository re-scope and documentation pass, not a functional change.
+
+## ADR-008: Lead qualification, formatted lead notes; multi-site/multi-company channel routing planned but not built
+
+### Decision
+Two changes shipped in `leads.py`:
+1. `POST /api/v1/leads` now explicitly sets `type: "lead"` on every created
+   `crm.lead`. Previously this was left to the ORM's own default
+   (`type` defaults to `'lead'` only if `self.env.user.has_group('crm.group_use_lead')`
+   — see `crm/models/crm_lead.py`), and the public user that authenticates
+   this S2S route is never in that group, so every web submission silently
+   defaulted to `'opportunity'` and skipped VARS's configured CRM
+   qualification step entirely.
+2. `description` (an Html field) is now a labeled, HTML-escaped note —
+   Contact / Company / Phone / Source / Message / Requested Items — built
+   by `_format_description()`, instead of the raw message text plus a
+   separate `message_post` for `cart_summary`. Every interpolated value is
+   escaped: this field is rendered as raw HTML to internal users in the
+   backend, so unescaped form input would be a stored-XSS vector against
+   the CRM team, not just an ugly note.
+
+**Not done in this pass, deliberately:** VARS is planning additional
+frontend sites (e.g. a `forward-feed.com`) against the same multi-company
+Odoo instance, and wants each lead to record which site/channel it came
+from, plus auto-applied tags based on the product(s) referenced in a quote.
+Both were discussed and explicitly deferred:
+- **Channel/company identity**: the chosen design (not yet implemented) is
+  **one `write_token` per site**, mapped in a small config table to that
+  site's `company_id` and default `utm.source` — the discriminator lives in
+  the auth credential itself, not a client-supplied field a caller could
+  spoof. When a new site is onboarded, that's one new config row, no code
+  change. The alternative considered — the frontend sending an explicit
+  `channel` string in the payload — was rejected because it's just trusted
+  input from whichever frontend calls, not tied to anything Odoo can
+  verify.
+- **Product-based tagging**: the intended design is auto-tagging a lead
+  from the catalog category of any referenced `varsco.catalog.item` (reuses
+  existing category data, no new config) — but this needs `/api/v1/leads`
+  to receive structured product identifiers instead of the current
+  free-text `cart_summary` string, which is a contract change requiring its
+  own sign-off (`CLAUDE.md` §6) and wasn't approved in this pass.
+
+### Reason
+The qualification-step and formatting fixes were unambiguous bugs/gaps with
+no design trade-off, so shipped immediately. The channel/tagging work
+involves a genuine fork (credential-based vs. payload-based channel
+identity) and a `/api/v1` contract change — both guardrail items — so they
+were scoped as documentation-only until a session with bandwidth to
+implement and test them properly, rather than half-building a contract
+change under time pressure.
+
+### Consequences
+- No contract change yet: `/api/v1/leads` still accepts exactly
+  `{name, email, company?, phone?, message, source, cart_summary?}`.
+- Every lead created through this route today is attributed to whichever
+  single company/`write_token` this Odoo instance currently has configured
+  — there is no per-site attribution yet, because there's only one site.
+- The next session that onboards a second frontend site (or wants
+  product-based tagging) should start from this ADR rather than re-deriving
+  the design: add the token→company/source config table, then extend
+  `/api/v1/leads` with an optional `product_slugs` field, resolve categories
+  via `varsco.catalog.item`, and apply/create matching `crm.tag` records.

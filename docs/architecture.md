@@ -56,7 +56,8 @@ data, price/stock only when `item_type == "purchasable_now"`.
 
 **Lead capture:** visitor submits a form on the frontend → frontend's
 *server* validates → `POST /api/v1/leads` (bearer-token authenticated) →
-Odoo creates `crm.lead` → existing `crm@`/`leads@` notification pipeline
+Odoo creates `crm.lead` with `type: "lead"` (explicit — see ADR-008) and a
+formatted, HTML-escaped Notes section → existing `crm@`/`leads@` notification pipeline
 fires.
 
 **Portal auth:** `POST /api/v1/portal/auth/login` → Odoo's native

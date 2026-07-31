@@ -65,3 +65,47 @@ class TestLeadsApi(HttpCase):
         lead = self.env["crm.lead"].sudo().browse(payload["lead_id"])
         self.assertEqual(lead.email_from, "jane@example.com")
         self.assertEqual(lead.contact_name, "Jane Buyer")
+
+    def test_lead_is_created_as_lead_not_opportunity(self):
+        """CRM is configured with a qualification step (Settings > CRM >
+        Leads) — every web-submitted lead must land in that queue as
+        type='lead', never skip straight to an opportunity. The public user
+        that authenticates this S2S route isn't in crm.group_use_lead, so
+        the ORM's own default (crm_lead.py's `type` field) would silently
+        pick 'opportunity' unless we set it explicitly."""
+        response = self._post(
+            {
+                "name": "Jane Buyer",
+                "email": "jane@example.com",
+                "message": "Interested in Artemia cysts.",
+                "source": "request_quote",
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertEqual(lead.type, "lead")
+
+    def test_lead_description_is_formatted_and_escapes_html(self):
+        response = self._post(
+            {
+                "name": "<b>Jane</b> Buyer",
+                "email": "jane@example.com",
+                "company": "Buyer & Co",
+                "phone": "+90 555 000 0000",
+                "message": "Line one\nLine two",
+                "source": "request_quote",
+                "cart_summary": "Artemia Cysts (x2)\nFish Meal (x1)",
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        # Structured sections present
+        for label in ("Contact", "Company", "Message", "Requested Items", "Source"):
+            self.assertIn(label, lead.description)
+        # User input is HTML-escaped, not injected raw into the stored HTML
+        self.assertNotIn("<b>Jane</b>", lead.description)
+        self.assertIn("&lt;b&gt;Jane&lt;/b&gt;", lead.description)
+        self.assertIn("Buyer &amp; Co", lead.description)
+        # cart_summary lines rendered as a real list, not a single blob
+        self.assertIn("Artemia Cysts (x2)", lead.description)
+        self.assertIn("Fish Meal (x1)", lead.description)

@@ -1,5 +1,6 @@
 import hmac
 import json
+from html import escape as html_escape
 
 from odoo import http
 from odoo.http import request
@@ -40,6 +41,34 @@ class VarscoContentApiLeads(http.Controller):
         # side-channel on the token check.
         return bool(expected) and hmac.compare_digest(provided, expected)
 
+    @staticmethod
+    def _format_description(payload):
+        """A labeled HTML note for the lead's Notes tab instead of one plain
+        paragraph. Every interpolated value is HTML-escaped — this is stored
+        verbatim in crm.lead.description (an Html field, rendered as-is to
+        internal users in the backend), so raw user input here would be a
+        stored-XSS vector against the CRM team, not just an ugly note."""
+
+        def esc(value):
+            return html_escape(value or "")
+
+        parts = [f"<p><strong>Contact:</strong> {esc(payload['name'])} ({esc(payload['email'])})</p>"]
+        if payload.get("company"):
+            parts.append(f"<p><strong>Company:</strong> {esc(payload['company'])}</p>")
+        if payload.get("phone"):
+            parts.append(f"<p><strong>Phone:</strong> {esc(payload['phone'])}</p>")
+        parts.append(f"<p><strong>Source:</strong> {esc(payload['source'])}</p>")
+        message_html = esc(payload["message"]).replace("\n", "<br/>")
+        parts.append(f"<p><strong>Message:</strong><br/>{message_html}</p>")
+        if payload.get("cart_summary"):
+            items_html = "".join(
+                f"<li>{esc(line.lstrip('-* ').strip())}</li>"
+                for line in payload["cart_summary"].splitlines()
+                if line.strip()
+            )
+            parts.append(f"<p><strong>Requested Items:</strong></p><ul>{items_html}</ul>")
+        return "".join(parts)
+
     @http.route(
         f"{API_PREFIX}/leads",
         type="http",
@@ -70,17 +99,22 @@ class VarscoContentApiLeads(http.Controller):
             .create(
                 {
                     "name": f"Web inquiry — {payload['name']}",
+                    # Explicit, not left to the ORM default: crm.lead's
+                    # `type` field defaults to 'lead' only if the acting
+                    # user has crm.group_use_lead — the public user
+                    # authenticating this S2S route never does, so without
+                    # this every web submission silently skipped the
+                    # qualification step straight into an opportunity.
+                    "type": "lead",
                     "contact_name": payload["name"],
                     "email_from": payload["email"],
                     "partner_name": payload.get("company") or False,
                     "phone": payload.get("phone") or False,
-                    "description": payload["message"],
+                    "description": self._format_description(payload),
                     "medium_id": medium.id if medium else False,
                 }
             )
         )
-        if payload.get("cart_summary"):
-            lead.message_post(body=payload["cart_summary"])
         return request.make_json_response(
             {"status": "success", "lead_id": lead.id}, status=201
         )
