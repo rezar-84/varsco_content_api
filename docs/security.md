@@ -13,6 +13,7 @@ external frontend and Odoo.
 | `POST /api/v1/leads` | Server-side bearer token (`varsco_content_api.write_token`) | Held only by the frontend's **server**, never its browser. Set up rotation on production. |
 | Portal endpoints | Odoo native session cookie | See §2 — the frontend maps this into its own httpOnly cookie |
 | `POST /api/v1/store/checkout` | `auth="user"` session | Same session mechanism as portal |
+| `POST /api/v1/portal/auth/register` | None (public) — creates the account itself | Rate-limited at the frontend edge like any other public POST; always creates `base.group_portal` only, never `base.group_user` |
 
 **Dormant** credential surface: Iyzico payment integration. Kept in Odoo's
 secret storage as-is per prior VARS confirmation for a future commerce

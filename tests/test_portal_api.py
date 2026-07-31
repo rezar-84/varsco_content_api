@@ -84,6 +84,21 @@ class TestPortalApi(HttpCase):
         self.partner.invalidate_recordset()
         self.assertNotEqual(self.partner.phone, "+90 555 999 8888")
 
+    def test_profile_update_accepts_turkey_english_name(self):
+        """Odoo's own res.country data stores Turkey as 'Türkiye' — a form
+        submitting the English name (what this frontend actually sends)
+        must still resolve, not 400 with unknown_country."""
+        self.authenticate("portal.buyer@example.com", self.password)
+        response = self.url_open(
+            "/api/v1/portal/profile",
+            data=json.dumps({"country": "Turkey"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.partner.invalidate_recordset()
+        self.assertEqual(self.partner.country_id.code, "TR")
+
     def test_profile_update_allows_configured_frontend_origin(self):
         self.authenticate("portal.buyer@example.com", self.password)
         response = self.url_open(

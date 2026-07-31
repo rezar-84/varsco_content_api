@@ -64,6 +64,13 @@ fires.
 id into its own httpOnly cookie for subsequent `auth="user"` calls
 (`GET /api/v1/portal/orders`, `PUT /api/v1/portal/profile`).
 
+**Self-service registration:** `POST /api/v1/portal/auth/register` creates a
+real `res.partner` + `res.users` (`base.group_portal` only, never an
+internal user) with the password the visitor chose, then immediately
+authenticates that account and returns the same session/user shape as
+`portal_login` — registering and being logged in are the same real Odoo
+account from the first response, not a frontend-local placeholder.
+
 **Checkout:** `POST /api/v1/store/checkout` (session-authenticated) →
 server-side re-validation of every line against
 `item_type == "purchasable_now"` and live stock → draft `sale.order`.
@@ -110,6 +117,7 @@ Customer-portal endpoints (`auth="user"`, session-cookie authenticated):
 | Method | Path | Effect |
 |--------|------|--------|
 | POST | `/api/v1/portal/auth/login` | Authenticates via Odoo session, returns partner summary |
+| POST | `/api/v1/portal/auth/register` | `{name, email, phone, company, country, password}` → creates `res.partner` + portal `res.users`, logs in, returns partner summary |
 | GET | `/api/v1/portal/orders` | Lists the authenticated partner's `sale.order`s |
 | PUT | `/api/v1/portal/profile` | Allow-listed `res.partner` field update |
 | POST | `/api/v1/store/checkout` | Validates + creates a draft `sale.order` |

@@ -2,6 +2,30 @@ from odoo.http import request
 
 API_PREFIX = "/api/v1"
 
+# Odoo's own res.country data doesn't always match the English name a form
+# visitor types — e.g. Odoo 19 stores Turkey's official name "Türkiye", not
+# "Turkey" (the 2022 rename), which would otherwise reject every VARS
+# customer's own country. Extend as other mismatches surface.
+COUNTRY_NAME_ALIASES = {
+    "turkey": "Türkiye",
+}
+
+
+def resolve_country(name):
+    """Look up a res.country from free-text form input, tolerating the
+    common name mismatches above and, as a last resort, an ISO 3166-1
+    alpha-2/3 code — returns an empty recordset if nothing matches."""
+    Country = request.env["res.country"].sudo()
+    cleaned = (name or "").strip()
+    country = Country.search([("name", "=", cleaned)], limit=1)
+    if not country:
+        alias = COUNTRY_NAME_ALIASES.get(cleaned.lower())
+        if alias:
+            country = Country.search([("name", "=", alias)], limit=1)
+    if not country and cleaned:
+        country = Country.search([("code", "=", cleaned.upper())], limit=1)
+    return country
+
 
 def require_trusted_origin():
     """Reject session-cookie-authenticated writes whose Origin header

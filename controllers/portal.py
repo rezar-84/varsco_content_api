@@ -1,10 +1,14 @@
 import json
 
 from odoo import http
-from odoo.exceptions import AccessDenied
+from odoo.exceptions import AccessDenied, UserError, ValidationError
 from odoo.http import request
+from odoo.tools.mail import single_email_re
 
-from .base import API_PREFIX, require_trusted_origin
+from .base import API_PREFIX, require_trusted_origin, resolve_country
+
+REGISTER_REQUIRED_FIELDS = ("name", "email", "phone", "company", "country", "password")
+MIN_PASSWORD_LENGTH = 6  # matches the frontend's registerSchema (api.auth.register.ts)
 
 
 class VarscoContentApiPortal(http.Controller):
@@ -76,6 +80,103 @@ class VarscoContentApiPortal(http.Controller):
         )
 
     @http.route(
+        f"{API_PREFIX}/portal/auth/register",
+        type="http",
+        auth="public",
+        methods=["POST"],
+        csrf=False,
+    )
+    def portal_register(self, **kwargs):
+        """Self-service B2B portal signup: creates a real res.partner +
+        portal res.users (never an internal/base.group_user account — only
+        base.group_portal), then logs the new account in immediately so the
+        response mirrors portal_login's shape. Unlike the old frontend-only
+        flow this replaces, the password the visitor sets is the one their
+        account actually gets — no session is minted unless Odoo really
+        created and authenticated the account.
+        """
+        rejection = require_trusted_origin()
+        if rejection:
+            return rejection
+        try:
+            payload = self._parsed_body()
+        except ValueError:
+            return self._bad_request("invalid_json")
+
+        missing = [f for f in REGISTER_REQUIRED_FIELDS if not payload.get(f)]
+        if missing:
+            return self._bad_request(f"missing_fields:{','.join(missing)}")
+
+        email = payload["email"].strip()
+        if not single_email_re.match(email):
+            return self._bad_request("invalid_email")
+
+        password = payload["password"]
+        if len(password) < MIN_PASSWORD_LENGTH:
+            return self._bad_request("password_too_short")
+
+        existing = request.env["res.users"].sudo().search_count([("login", "=", email)])
+        if existing:
+            return request.make_json_response({"error": "email_already_registered"}, status=409)
+
+        country = resolve_country(payload["country"])
+        if not country:
+            return self._bad_request("unknown_country")
+
+        partner = (
+            request.env["res.partner"]
+            .sudo()
+            .create(
+                {
+                    "name": payload["name"],
+                    "email": email,
+                    "phone": payload["phone"],
+                    "company_name": payload["company"],
+                    "country_id": country.id,
+                }
+            )
+        )
+        try:
+            request.env["res.users"].sudo().create(
+                {
+                    "name": payload["name"],
+                    "login": email,
+                    "password": password,
+                    "partner_id": partner.id,
+                    "group_ids": [(6, 0, [request.env.ref("base.group_portal").id])],
+                }
+            )
+        except (ValidationError, UserError) as exc:
+            partner.unlink()
+            return self._bad_request(f"account_creation_failed:{exc}")
+
+        try:
+            request.session.authenticate(
+                request.env, {"login": email, "password": password, "type": "password"}
+            )
+        except AccessDenied:
+            # Should be unreachable — we just created these exact
+            # credentials — but never claim success without a real session.
+            return request.make_json_response(
+                {"error": "account_created_but_login_failed"}, status=500
+            )
+
+        return request.make_json_response(
+            {
+                "session_id": request.session.sid,
+                "user": {
+                    "id": partner.id,
+                    "name": partner.name,
+                    "email": partner.email,
+                    "company": partner.commercial_company_name or "",
+                    "phone": partner.phone or "",
+                    "country": partner.country_id.name or "",
+                },
+            },
+            status=201,
+        )
+
+    @http.route(
         f"{API_PREFIX}/portal/orders",
         type="http",
         auth="public",
@@ -144,11 +245,7 @@ class VarscoContentApiPortal(http.Controller):
         if payload.get("company"):
             values["company_name"] = payload["company"]
         if payload.get("country"):
-            country = (
-                request.env["res.country"]
-                .sudo()
-                .search([("name", "=", payload["country"])], limit=1)
-            )
+            country = resolve_country(payload["country"])
             if not country:
                 return self._bad_request("unknown_country")
             values["country_id"] = country.id
