@@ -457,3 +457,57 @@ same `/shop/<slug>-<id>` URL shape as the old indexed pages, for free.
   collapsing into more than one spec group/heading (everything lands under
   a single "Specifications" heading today) — revisit if a real product
   needs visually separated spec groups.
+
+## ADR-011: Reviews/ratings, wishlist, and address book reuse native Odoo data — no new custom models
+
+### Status
+Accepted — 2026-08-02
+
+### Decision
+Reviews/ratings on `/shop` (this ADR's scope) read/write Odoo's native
+`rating.rating` model via `rating.mixin` (already inherited by
+`product.template` through `website_sale`) — not a new custom model. New
+`controllers/reviews.py`: `GET .../reviews` (public), `POST .../reviews`
+(session-authenticated, verified-purchase gated). `rating_avg`/
+`rating_count` also added to the existing shop product summary/detail
+payload in `controllers/shop.py`.
+
+Reviews require a **verified purchase**: the reviewing partner must have
+at least one confirmed (`state == "sale"`) `sale.order.line` for the
+product, checked against `sale.order.partner_id` — the exact field
+`controllers/checkout.py` sets the buyer on, not a shipping/billing
+contact. One review per partner per product, enforced at the API layer
+(`rating.rating` has no uniqueness constraint of its own).
+
+### Reason
+Same principle as ADR-010 (real product data over a parallel curated
+model): `website_sale`'s dependency tree already ships fully-featured
+native infrastructure for reviews (`rating` module), wishlist
+(`website_sale_wishlist`, `auto_install`), and comparison
+(`website_sale_comparison`, `auto_install`) — none of it requires
+installing anything beyond what's already a dependency. Billing/shipping
+addresses are likewise native: `res.partner`'s standard parent/child
+contact model (`type` in `contact`/`invoice`/`delivery`/`other`/`private`).
+Building custom models for any of these would duplicate data Odoo already
+owns and computes correctly (e.g. `rating_avg` is a real aggregate compute,
+not something worth re-deriving).
+
+Verified-purchase-only (rather than any logged-in user) was an explicit
+product decision, not a default: it means a brand-new product with zero
+sales can't be reviewed yet, which is the accepted tradeoff for review
+trustworthiness.
+
+### Consequences
+- New `tests/test_reviews_api.py` (8 cases: list shape, 404, auth,
+  verified-purchase gate, duplicate rejection, rating-range validation,
+  unpublished-product rejection). `docs/architecture.md` §3/§5 updated.
+- Manifest version bumped to `19.0.1.7.0`.
+- Wishlist, product comparison, and the address book are **not** built in
+  this pass — scoped as separate follow-up phases (see `varsco_com`'s own
+  planning notes from this session) using the same native-data principle:
+  `product.wishlist` for wishlist, `res.partner` child contacts for
+  addresses.
+- Not done here: pagination on the reviews list (fine at current review
+  volume; revisit if a product accumulates enough reviews for payload size
+  to matter), review moderation/reporting, and a "publisher reply" surface
+  (`rating.rating.publisher_comment` exists natively but isn't exposed).

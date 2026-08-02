@@ -2,6 +2,40 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-02 — Product reviews & ratings (Phase 2 of shop feature parity)
+
+- **Context:** VARS asked to close the gap between `/shop` and the
+  reference Odoo storefront (`erp.varsco.com/shop`) — filters, images,
+  descriptions, reviews, ratings, related products, wishlist, billing
+  address. Checked what's native vs. custom-build territory before
+  planning phases (see `varsco_com`'s session plan): reviews/ratings,
+  wishlist, and comparison are all native `website_sale`-dependency
+  modules, not new subsystems. This entry covers reviews/ratings, the
+  first backend phase.
+- **New `controllers/reviews.py`**: `GET /api/v1/store/products/{locale}/{url_path}/reviews`
+  (public) reads consumed `rating.rating` records for the resolved
+  `product.template`. `POST` (session-authenticated via the same
+  `_portal_partner()` pattern as `checkout.py`/`portal.py`) creates one,
+  gated on a **verified purchase** (confirmed `sale.order.line` for that
+  partner+product — see ADR-011) and rejecting a second review from the
+  same partner.
+- **`controllers/shop.py`**: `_summary()` now includes `rating_avg`/
+  `rating_count` (native `rating.mixin` computed fields, already readable
+  since every template in this controller is fetched via `.sudo()`,
+  bypassing the fields' `groups='base.group_user'` restriction).
+- **Tests**: `tests/test_reviews_api.py`, 8 cases. Also fixed
+  `test_shop_api.py`'s `LIST_KEYS`/`DETAIL_KEYS` sets, which started
+  failing the moment `rating_avg`/`rating_count` were added to the
+  payload — a reminder that those sets are an exhaustive allow-list check,
+  not just a sanity check, so they need updating alongside every new
+  public field. Full suite: 65/65 green.
+- Manifest version bumped to `19.0.1.7.0`.
+- **Not built here** (see ADR-011): pagination on the review list, review
+  moderation/publisher-reply surface, wishlist, product comparison, and
+  the address book — all separately scoped, same native-data principle.
+- **Next**: frontend side (`varsco_com`, tracked there) — star display on
+  product cards/detail page, review list + auth-gated submission form.
+
 ## 2026-08-02 — Critical: portal login/register returned a session_id Odoo would reject
 
 - **Context:** while doing a genuine end-to-end verification of the

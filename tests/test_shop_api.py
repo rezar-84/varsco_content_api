@@ -17,6 +17,8 @@ LIST_KEYS = {
     "category",
     "primary_media",
     "updated_at",
+    "rating_avg",
+    "rating_count",
     "purchase",
 }
 DETAIL_KEYS = LIST_KEYS | {

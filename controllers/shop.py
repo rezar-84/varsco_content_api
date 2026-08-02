@@ -88,6 +88,8 @@ class VarscoContentApiShop(http.Controller):
             "category": self._category_summary(category),
             "primary_media": media[0] if media else None,
             "updated_at": self._iso(template.write_date),
+            "rating_avg": round(template.rating_avg, 2) if template.rating_count else None,
+            "rating_count": template.rating_count,
             "purchase": {
                 "product_id": variant.id,
                 "amount": template.list_price,

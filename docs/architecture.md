@@ -67,6 +67,17 @@ a real multi-image gallery (`product_template_image_ids`) and
 same data `erp.varsco.com/shop` itself reads. No curated model involved;
 toggling "Published" on a normal Odoo product is the entire workflow.
 
+**Reviews & ratings:** `GET /api/v1/store/products/{locale}/{url_path}/reviews`
+reads Odoo's native `rating.rating` model (`product.template` already
+inherits `rating.mixin` via `website_sale`) — no custom review model.
+`rating_avg`/`rating_count` are also included on every shop product
+summary/detail (`controllers/shop.py`). `POST .../reviews` requires a
+session-authenticated partner with a **verified purchase** — at least one
+confirmed (`state == "sale"`) `sale.order.line` for the product, matching
+exactly how `controllers/checkout.py` creates orders — and rejects a second
+review from the same partner for the same product (enforced at the API
+layer; `rating.rating` itself has no uniqueness constraint).
+
 **Lead capture:** visitor submits a form on the frontend → frontend's
 *server* validates → `POST /api/v1/leads` (bearer-token authenticated) →
 Odoo creates `crm.lead` with `type: "lead"` (explicit — see ADR-008) and a
@@ -128,6 +139,7 @@ Public read endpoints (`auth="public"`, cacheable):
 | GET | `/api/v1/products/{locale}/{url_path}` | One curated catalog item: localized copy, media, specifications, quote CTA, price/stock if `purchasable_now` |
 | GET | `/api/v1/store/products/{locale}` | **Real** Odoo storefront products — every `product.template` with `is_published = True` (`website_sale`'s native flag), same list as `erp.varsco.com/shop` shows today. Not the curated model above. |
 | GET | `/api/v1/store/products/{locale}/{url_path}` | One real product by its `ir.http._slug()`-generated slug (the exact convention `website_sale` itself uses for `/shop/<slug>-<id>`) — 404 if unpublished or unknown |
+| GET | `/api/v1/store/products/{locale}/{url_path}/reviews` | Consumed `rating.rating` records for the product (native `rating` module, no custom model) plus `rating_avg`/`rating_count` in `meta` |
 
 Secure server-to-server write (bearer token):
 
@@ -146,6 +158,7 @@ this is deliberate, not `auth="user"`):
 | GET | `/api/v1/portal/orders` | Lists the authenticated partner's `sale.order`s |
 | PUT | `/api/v1/portal/profile` | Allow-listed `res.partner` field update |
 | POST | `/api/v1/store/checkout` | Validates + creates a draft `sale.order`; response includes `payment_url` when a payment provider is available |
+| POST | `/api/v1/store/products/{locale}/{url_path}/reviews` | `{rating, feedback?}` → creates a `rating.rating`; 403 without a verified purchase, 409 on a second review for the same product |
 
 **Presentation discipline:** catalog `description_html`/media fields
 contain sanitized semantic prose, media references, and identifiers only —
