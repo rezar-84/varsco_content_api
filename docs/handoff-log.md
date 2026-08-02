@@ -2,6 +2,13 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-02 — Catalog admin UI (Products/Categories backend views)
+
+- **Context:** VARS installed this module + `midvex_sale_payment_link` on production and pushed the frontend, but `/shop` still showed zero products. Root cause: `varsco.catalog.category`/`varsco.catalog.item`/their `.i18n` models had full ACL grants but **zero backend views or menu** — there was no way for a human to create catalog content at all short of raw Developer Mode technical-model editing.
+- **New `views/catalog_views.xml`**: a "Varsco Catalog" top-level menu (restricted to `base.group_system`, matching the existing ACL) with Products and Categories list/form views. Category translations are an inline editable list (simple fields only). Product translations use a list+form combo — the list shows locale/name/review status, the form (opened per row) has room for the rich-text `description_html` (html widget) and the `media`/`specification_groups` JSON fields (plain text widgets for now — no custom JSON editor built).
+- **Verified** (not just "loads without error"): created a category + product through the ORM using exactly the fields the new form exposes, confirmed both report `_is_servable() == True` — i.e., an admin filling in the form correctly produces content the public API will actually serve. Menu/action wiring also checked directly (`ir.ui.menu`/`ir.actions.act_window` refs resolve, root menu really is `base.group_system`-only).
+- Manifest version bumped to `19.0.1.2.0`.
+
 ## 2026-08-02 — Iyzico payment via new `midvex_sale_payment_link` module; Settings UI
 
 - **Context:** VARS asked (from the `aqua-bloom-portal`/`varsco_com` frontend session) whether payment should be built as an Odoo module, since `payment_iyzico` is already installed. Traced the real mechanism: `sale.order.get_portal_url()` (core `portal`) already returns a full URL with `access_token` embedded, landing on Odoo's own customer-portal order page, which already renders whatever `payment.provider`s are compatible — `payment_iyzico` fully handles the rest natively. See `docs/decisions.md` ADR-009 for the full record.
