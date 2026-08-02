@@ -46,21 +46,47 @@ class VarscoContentApiShop(http.Controller):
             "url_path": f"/shop/category/{slug}",
         }
 
+    def _media_list(self, template):
+        """Real multi-image gallery: the main template image first, then
+        website_sale's product_template_image_ids (its own extra-photos
+        mechanism) in order. Previously only image_1920 was ever exposed,
+        capping every shop product at a single image regardless of how many
+        photos the Odoo record actually had."""
+        items = []
+        if template.image_1920:
+            items.append(
+                {"url": self._image_url("product.template", template.id), "alt": template.name}
+            )
+        items.extend(
+            {"url": self._image_url("product.image", img.id), "alt": img.name or template.name}
+            for img in template.product_template_image_ids
+            if img.image_1920
+        )
+        return items
+
+    def _specification_groups(self, template):
+        """Real attribute data (size/weight/packaging variants etc.) instead
+        of the previous hardcoded []. One group is enough for now — richer
+        multi-group layouts aren't something attribute_line_ids models."""
+        items = [
+            {"label": line.attribute_id.name, "value": ", ".join(line.value_ids.mapped("name"))}
+            for line in template.attribute_line_ids
+            if line.value_ids
+        ]
+        return [{"heading": "Specifications", "items": items}] if items else []
+
     def _summary(self, template):
         slug = request.env["ir.http"]._slug(template)
         category = template.public_categ_ids[:1]
         variant = template.product_variant_id
+        media = self._media_list(template)
         return {
             "slug": slug,
             "name": template.name,
             "summary": template.description_sale or "",
             "url_path": f"/shop/{slug}",
             "category": self._category_summary(category),
-            "primary_media": (
-                {"url": self._image_url("product.template", template.id), "alt": template.name}
-                if template.image_1920
-                else None
-            ),
+            "primary_media": media[0] if media else None,
             "updated_at": self._iso(template.write_date),
             "purchase": {
                 "product_id": variant.id,
@@ -114,16 +140,8 @@ class VarscoContentApiShop(http.Controller):
                 "description_html": (
                     f"<p>{template.description_sale}</p>" if template.description_sale else ""
                 ),
-                "media": (
-                    [{"url": self._image_url("product.template", template.id), "alt": template.name}]
-                    if template.image_1920
-                    else []
-                ),
-                # Mapping product attributes (size/weight/packaging variants)
-                # into spec rows is real work, deliberately deferred to the
-                # tracked "Attributes & variations" follow-up, not half-built
-                # here.
-                "specification_groups": [],
+                "media": self._media_list(template),
+                "specification_groups": self._specification_groups(template),
                 "quote_cta_enabled": True,
             }
         )

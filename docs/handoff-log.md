@@ -2,6 +2,56 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-02 — Shop product images/specs: close the gallery/attributes gap
+
+- **Context:** VARS reported production shop products still look
+  "incomplete" (images/info) after the previous session's Shop correction.
+  Investigated whether this was missing Odoo data entry or a real code gap —
+  it was mostly a code gap: `controllers/shop.py` only ever read the single
+  `product.template.image_1920` field and hardcoded `specification_groups: []`
+  unconditionally, even though `website_sale` (already a dependency) exposes
+  a proper multi-image gallery (`product_template_image_ids`) and attribute
+  data (`attribute_line_ids`) that were simply never read.
+- **`controllers/shop.py`**: new `_media_list()` builds a real `media` array
+  from the main template image plus every `product_template_image_ids` entry
+  that actually has image data; new `_specification_groups()` maps
+  `attribute_line_ids` into a `{heading: "Specifications", items: [{label,
+  value}]}` group instead of the previous hardcoded `[]`. `_summary()`'s
+  `primary_media` now derives from `_media_list()`'s first item rather than
+  duplicating the same-image check inline.
+- **Tests**: two new cases in `test_shop_api.py` — a product with a real
+  multi-image gallery and an attribute line (asserts 3 media items, 1 spec
+  group with the right label/value), and a product with an image-less
+  `product.image` row (asserts it's correctly excluded, not rendered as a
+  broken media entry). Full suite: 55/55 green.
+- **Verified for real**: created a `product.template` via plain ORM (no test
+  harness) with 2 real images and a real attribute line, confirmed via curl
+  that `/api/v1/store/products/en/<slug>` returns both images and the
+  correct spec group, then deleted the fixture.
+- Manifest version bumped to `19.0.1.4.0`. See `docs/decisions.md` ADR-010's
+  2026-08-02 amendment for the full record.
+- **Also this session** (frontend-side, tracked in `varsco_com`, not here):
+  fixed a cart-hydration race that could wipe a guest's `/shop` cart on
+  login, a login/auth race that could intermittently fail to redirect after
+  sign-in, checkout surfacing the raw string "unauthorized" instead of a
+  human message, session-cookie lifetime mismatch (30-day browser cookie vs
+  Odoo's 7-day session), and removed the "Add to Cart"/"Add to Quote Cart"
+  buttons from the informational `/products` portfolio (that page's separate
+  "quote cart" system was unwired from the live UI entirely, kept in the
+  codebase for potential reuse elsewhere). Corrected two stale doc claims in
+  this repo's own `docs/architecture.md` along the way: the "Customer-portal
+  reads/writes" section said `auth="user"`, but every one of those routes
+  (including checkout) actually uses `auth="public"` + a manual
+  `_portal_partner()` session check — the code was already right, just the
+  docs were wrong.
+- **Not fixed by anyone yet**: "no payment method shown" at checkout is a
+  real *operational* gap, not code — no `payment.provider` is currently
+  `state in (enabled, test)` and `is_published=True` on production. Needs a
+  human with Odoo admin access: Settings → Payment Providers → enable +
+  publish a provider (e.g. Iyzico).
+- **Next**: sync this module's vendored copy in `varsco_odoo_staging`
+  (tracked there, not here).
+
 ## 2026-08-02 — Correction: Shop reads real Odoo product data, not the curated catalog
 
 - **Context:** VARS corrected the immediately-preceding session's direction: the Products/Categories admin UI added there (curated `varsco.catalog.item` model) was the wrong approach entirely. The actual requirement is porting `erp.varsco.com/shop` (Odoo's native `website_sale` storefront — confirmed live with 7 real published products) into the new frontend with the same content/URL structure, using real Odoo product data, not a parallel system requiring every product re-entered a second time. See `docs/decisions.md` ADR-010 for the full record, including the reasoning for why ADR-006's curated model stays right for the *separate* `/products` portfolio but was wrong here.

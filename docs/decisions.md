@@ -444,6 +444,16 @@ same `/shop/<slug>-<id>` URL shape as the old indexed pages, for free.
   endpoints (every locale currently reads the same underlying field
   values) — a known simplification, documented in `controllers/shop.py`'s
   docstring, revisit if serving genuinely per-locale product copy becomes a
-  real requirement. Also not done: mapping `product.template.attribute_line_ids`
-  into `specification_groups` — real work, deliberately deferred to the
-  already-tracked "Attributes & variations" backlog item.
+  real requirement.
+- **Amended 2026-08-02 (`19.0.1.4.0`):** the "Attributes & variations"
+  deferral above is now closed for the base case. `_media_list()` reads
+  `website_sale`'s `product_template_image_ids` for a real multi-image
+  gallery (previously capped at the single `image_1920`), and
+  `_specification_groups()` maps `attribute_line_ids` into a real
+  `specification_groups` array (previously hardcoded `[]`). This was found
+  to be a genuine code gap, not just missing Odoo data entry — every shop
+  product was capped at one image and zero specs regardless of how complete
+  the underlying record was. Still not done: multiple attribute lines
+  collapsing into more than one spec group/heading (everything lands under
+  a single "Specifications" heading today) — revisit if a real product
+  needs visually separated spec groups.

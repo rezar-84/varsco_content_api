@@ -1,6 +1,13 @@
 import json
 
+from odoo.fields import Command
 from odoo.tests import HttpCase, tagged
+
+# Real 1x1 red PNG, for product.image test fixtures (image.mixin fields
+# validate/process real image data, a fake byte string won't pass).
+_TEST_PNG = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+)
 
 LIST_KEYS = {
     "slug",
@@ -100,3 +107,62 @@ class TestShopApi(HttpCase):
         serialized = json.dumps(detail_payload)
         for forbidden in ("standard_price", "margin"):
             self.assertNotIn(forbidden, serialized)
+
+    def test_detail_exposes_real_multi_image_gallery_and_specs(self):
+        attribute = self.env["product.attribute"].create(
+            {
+                "name": "Pack Size",
+                "value_ids": [
+                    Command.create({"name": "500g"}),
+                    Command.create({"name": "1kg"}),
+                ],
+            }
+        )
+        template = self.env["product.template"].create(
+            {
+                "name": "Gallery Test Product",
+                "list_price": 15.0,
+                "is_published": True,
+                "image_1920": _TEST_PNG,
+                "product_template_image_ids": [
+                    Command.create({"name": "Angle 2", "image_1920": _TEST_PNG}),
+                    Command.create({"name": "Angle 3", "image_1920": _TEST_PNG}),
+                ],
+                "attribute_line_ids": [
+                    Command.create(
+                        {
+                            "attribute_id": attribute.id,
+                            "value_ids": [Command.set(attribute.value_ids.ids)],
+                        }
+                    )
+                ],
+            }
+        )
+        slug = self.env["ir.http"]._slug(template)
+
+        _, payload = self._get_json(f"/api/v1/store/products/en/{slug}")
+        data = payload["data"]
+
+        # Main template image + both extra product_template_image_ids entries.
+        self.assertEqual(len(data["media"]), 3)
+        self.assertEqual(data["primary_media"], data["media"][0])
+
+        self.assertEqual(len(data["specification_groups"]), 1)
+        group = data["specification_groups"][0]
+        self.assertEqual(group["items"], [{"label": "Pack Size", "value": "500g, 1kg"}])
+
+    def test_list_media_ignores_extra_images_without_actual_image_data(self):
+        template = self.env["product.template"].create(
+            {
+                "name": "No Real Gallery Product",
+                "list_price": 5.0,
+                "is_published": True,
+                "image_1920": _TEST_PNG,
+                # A row with no image_1920 set shouldn't produce a broken
+                # media entry pointing at a record with no picture.
+                "product_template_image_ids": [Command.create({"name": "Placeholder"})],
+            }
+        )
+        slug = self.env["ir.http"]._slug(template)
+        _, payload = self._get_json(f"/api/v1/store/products/en/{slug}")
+        self.assertEqual(len(payload["data"]["media"]), 1)

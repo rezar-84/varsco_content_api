@@ -34,8 +34,11 @@ A thin Odoo module exposing:
   fields only — never cost/margin/internal fields.
 - **Secure server-to-server writes** (`auth="public"` + bearer
   `write_token`): used by the frontend's *server*, never its browser.
-- **Customer-portal reads/writes** (`auth="user"`, Odoo session cookie):
-  scoped to the authenticated partner via record rules
+- **Customer-portal reads/writes** (`auth="public"` + a manual
+  session-cookie check against `_portal_partner()`, not Odoo's `auth="user"`
+  decorator — that would redirect an anonymous `type="http"` request to
+  `/web/login` instead of returning the JSON 401 the frontend contract
+  expects): scoped to the authenticated partner via record rules
   (`docs/security.md`).
 
 Versioned under `/api/v1/`. Breaking changes → `/api/v2/` + deprecation
@@ -58,7 +61,9 @@ changing it is a `CLAUDE.md` §6 guardrail.
 **Shop browsing (transactional storefront):** frontend calls
 `GET /api/v1/store/products/{locale}` and
 `GET /api/v1/store/products/{locale}/{url_path}` → real `product.template`
-data, gated purely on `is_published` (website_sale's native flag) — the
+data, gated purely on `is_published` (website_sale's native flag), including
+a real multi-image gallery (`product_template_image_ids`) and
+`specification_groups` mapped from `attribute_line_ids` — the
 same data `erp.varsco.com/shop` itself reads. No curated model involved;
 toggling "Published" on a normal Odoo product is the entire workflow.
 
@@ -130,7 +135,9 @@ Secure server-to-server write (bearer token):
 |--------|------|---------------|
 | POST | `/api/v1/leads` | `{name, email, company?, message, source, cart_summary?}` → creates `crm.lead` |
 
-Customer-portal endpoints (`auth="user"`, session-cookie authenticated):
+Customer-portal endpoints (`auth="public"` + manual `_portal_partner()`
+session-cookie check — see `docs/handoff-log.md`'s 2026-07-31 entry for why
+this is deliberate, not `auth="user"`):
 
 | Method | Path | Effect |
 |--------|------|--------|
