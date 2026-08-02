@@ -87,6 +87,8 @@ class VarscoContentApiPortal(http.Controller):
                     "email": partner.email or login,
                     "company": partner.commercial_company_name or "",
                     "phone": partner.phone or "",
+                    "street": partner.street or "",
+                    "city": partner.city or "",
                     "country": partner.country_id.name or "",
                 },
             }
@@ -187,6 +189,8 @@ class VarscoContentApiPortal(http.Controller):
                     "email": partner.email,
                     "company": partner.commercial_company_name or "",
                     "phone": partner.phone or "",
+                    "street": partner.street or "",
+                    "city": partner.city or "",
                     "country": partner.country_id.name or "",
                 },
             },
@@ -259,6 +263,10 @@ class VarscoContentApiPortal(http.Controller):
             values["email"] = payload["email"]
         if payload.get("phone"):
             values["phone"] = payload["phone"]
+        if payload.get("street"):
+            values["street"] = payload["street"]
+        if payload.get("city"):
+            values["city"] = payload["city"]
         if payload.get("company"):
             values["company_name"] = payload["company"]
         if payload.get("country"):

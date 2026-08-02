@@ -85,7 +85,14 @@ class TestPortalApi(HttpCase):
         self.authenticate("portal.buyer@example.com", self.password)
         response = self.url_open(
             "/api/v1/portal/profile",
-            data=json.dumps({"phone": "+90 555 111 2233", "company": "New Co"}).encode(),
+            data=json.dumps(
+                {
+                    "phone": "+90 555 111 2233",
+                    "company": "New Co",
+                    "street": "Ismet Kaptan Mah. No:6",
+                    "city": "Izmir",
+                }
+            ).encode(),
             headers={"Content-Type": "application/json"},
             method="PUT",
         )
@@ -93,6 +100,21 @@ class TestPortalApi(HttpCase):
         self.partner.invalidate_recordset()
         self.assertEqual(self.partner.phone, "+90 555 111 2233")
         self.assertEqual(self.partner.company_name, "New Co")
+        self.assertEqual(self.partner.street, "Ismet Kaptan Mah. No:6")
+        self.assertEqual(self.partner.city, "Izmir")
+
+    def test_login_response_includes_street_and_city(self):
+        self.partner.write({"street": "Test Street 1", "city": "Konak"})
+        response = self.url_open(
+            "/api/v1/portal/auth/login",
+            data=json.dumps(
+                {"login": "portal.buyer@example.com", "password": self.password}
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        payload = json.loads(response.content)
+        self.assertEqual(payload["user"]["street"], "Test Street 1")
+        self.assertEqual(payload["user"]["city"], "Konak")
 
     def test_profile_update_rejects_cross_origin_request(self):
         """A browser holding a real erp.varsco.com session cookie (e.g. via
