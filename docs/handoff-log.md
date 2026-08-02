@@ -2,6 +2,30 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-02 — Critical: shop product image URLs were relative, 404ing on the frontend's own domain
+
+- **Context:** VARS reported real production 404s — every shop product
+  image request going to `https://varsco.com/web/image/...` instead of
+  `https://erp.varsco.com/web/image/...`.
+- **Root cause**: `controllers/shop.py`'s `_image_url()` returned a bare
+  relative path (`/web/image/{model}/{id}/{field}`). The frontend renders
+  this directly as `<img src=...>` on its own domain — a browser resolves
+  a relative URL against the CURRENT PAGE's origin (`varsco.com`), not
+  Odoo's, so every image request 404'd there instead of ever reaching
+  Odoo. `controllers/products.py` already had the right pattern for this
+  exact problem (`_base_url()`, reading `varsco_content_api.base_url` with
+  a `web.base.url` fallback, used for canonical/hreflang URLs) — `shop.py`
+  just never had it.
+- **Fix**: added the identical `_base_url()` helper to `shop.py`,
+  `_image_url()` now prefixes every image URL with it. Verified for real:
+  created a product with a real image via plain ORM, confirmed the API
+  response now returns an absolute URL, not a bare path.
+- Manifest version bumped to `19.0.1.9.0`. Full suite: 73/73 green
+  (unaffected — no test asserted on the URL being relative).
+- **Next**: this needs the same production deploy step as every other fix
+  this session (pull latest `varsco_content_api`, run the Odoo module
+  upgrade) before it takes effect on `varsco.com`.
+
 ## 2026-08-02 — Wishlist (Phase 3 of shop feature parity)
 
 - **Context:** continuing the phased shop-feature-parity work (reviews/

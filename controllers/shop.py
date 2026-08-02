@@ -29,9 +29,21 @@ class VarscoContentApiShop(http.Controller):
     def _iso(value):
         return value.isoformat() + "Z" if value else None
 
-    @staticmethod
-    def _image_url(model, record_id, field="image_1024"):
-        return f"/web/image/{model}/{record_id}/{field}"
+    def _base_url(self):
+        # Media URLs must be absolute: the frontend renders them in <img
+        # src=...> on its own domain (varsco.com), and a bare relative path
+        # like "/web/image/..." resolves against THAT page's origin, not
+        # Odoo's — 404ing every image. Same helper/config param as
+        # controllers/products.py's _base_url(), which already gets this
+        # right for canonical/hreflang URLs.
+        config = request.env["ir.config_parameter"].sudo()
+        base = config.get_param("varsco_content_api.base_url") or config.get_param(
+            "web.base.url", ""
+        )
+        return base.rstrip("/")
+
+    def _image_url(self, model, record_id, field="image_1024"):
+        return f"{self._base_url()}/web/image/{model}/{record_id}/{field}"
 
     def _published_templates(self):
         return request.env["product.template"].sudo().search([("is_published", "=", True)])
