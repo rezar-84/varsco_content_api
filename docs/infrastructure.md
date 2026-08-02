@@ -23,8 +23,14 @@ section — this document doesn't change it.
 | Env | Odoo | Notes |
 |---|---|---|
 | local | `~/Development/odoo19-dev` (see its own `AGENTS.md`) | Database `odoo19_test_varsco` is the lightweight test target — see §3 below for a known registry-load gotcha |
-| staging | staging Odoo | Same module install/test process as local |
-| production | Odoo behind `erp.varsco.com` | |
+| staging | Dokploy-managed Docker Odoo — `varsco_odoo_staging` repo (sibling to `varsco_com`) | Not the Plesk box — a separate, disposable Docker stack (official `odoo:19` image + this module + `midvex_sale_payment_link` baked in), fresh/empty database, never a copy of production. Same module install/test process as local otherwise. |
+| production | Odoo behind `erp.varsco.com` | Hetzner + Plesk, as below |
+
+`varsco_odoo_staging`'s own `README.md` covers first-boot setup (create the
+database, install both addons, configure `write_token`/`base_url`/
+`allowed_frontend_origin` via the Settings UI added in the payment-link work)
+and how its vendored copies of this module and `midvex_sale_payment_link`
+are kept in sync with their own repos.
 
 ## 3. Testing `varsco_content_api` locally — known pitfalls
 
