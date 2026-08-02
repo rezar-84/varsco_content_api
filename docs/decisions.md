@@ -525,3 +525,69 @@ trustworthiness.
   `tests/test_wishlist_api.py` (9 cases: auth on all three verbs, add,
   duplicate idempotency, list shape, remove, remove doesn't leak across
   partners). Full suite: 73/73 green.
+
+## ADR-012: Expose the rest of website_sale's real ecommerce fields — cross-sell, ribbon, tags, stock behavior, the correct description field
+
+### Status
+Accepted — 2026-08-02
+
+### Decision
+VARS asked for an explicit field-by-field audit of `product.template`'s
+website_sale surface against what `controllers/shop.py` actually returned.
+Every one of these was confirmed present on the model but **not** exposed,
+and all are now added to `_summary()`/`shop_product_detail()`:
+- `ribbon` (`website_ribbon_id` → `product.ribbon`: name/bg_color/text_color/style/position)
+- `tags` (`product_tag_ids`)
+- `website_sequence` now drives `_published_templates()`'s query order
+- `purchase.sell_when_out_of_stock` (`allow_out_of_stock_order`) — and
+  `purchase.available` now factors it in: `qty_available > 0 OR
+  sell_when_out_of_stock`, not just raw stock count
+- `purchase.show_qty` (`show_availability`), `purchase.out_of_stock_message`
+- `alternative_products`/`accessory_products`/`optional_products` (detail
+  endpoint only) — Odoo's own curated cross-sell relations
+  (`alternative_product_ids`, `accessory_product_ids` — variant-level,
+  mapped to templates + deduped, `optional_product_ids`), each serialized
+  through the existing `_summary()`
+- The `summary`/`description_html`/SEO `description` fields now read
+  `description_ecommerce` (website_sale's real storefront-description
+  field) with a fallback to `description_sale` — these are two genuinely
+  different pieces of copy (a sale-quotation blurb vs. the actual storefront
+  body text), previously conflated by always using `description_sale`.
+
+**Confirmed absent from this Odoo install, so not built**: no
+`product.packaging` model/`packaging_ids` field exists anywhere in this
+tree — that eCommerce feature simply isn't present here, nothing to expose.
+`website_id` was checked and judged not worth exposing for a single-website
+instance — it only matters for multi-website Odoo setups.
+
+### Reason
+Same principle as ADR-010/ADR-011: reuse real Odoo data instead of leaving
+it silently unexposed. `allow_out_of_stock_order`/`show_availability`/
+`out_of_stock_message` live in **`website_sale_stock`** (a distinct
+auto-installed bridge module, not `website_sale` itself) — confirmed
+installed on this instance before depending on it, added to `depends`
+explicitly rather than relying on the transitive auto-install (same lesson
+as ADR-011's wishlist entry).
+
+### Consequences
+- `website_sale_stock` added to `depends`. Manifest version bumped to
+  `19.0.1.10.0`.
+- `tests/test_shop_api.py` gained 8 new cases (description source
+  precedence + fallback, ribbon present/absent, tags, sell-when-out-of-
+  stock affecting `available`, all three cross-sell relations, website_sequence
+  ordering) plus updated `LIST_KEYS`/`DETAIL_KEYS`/`PURCHASE_KEYS` allow-
+  lists (these are exhaustive-key assertions, not just sanity checks — they
+  must be updated alongside every new public field or the test suite itself
+  catches the omission, which is exactly what happened here). Full suite:
+  80/80 green.
+- Cross-sell fields are populated **only** on the detail endpoint, never
+  inside `_summary()` itself — listing ~50 published products never
+  eager-loads each one's alternative/accessory/optional relations, only the
+  single product a visitor is actually viewing pays that cost.
+- Not done here (frontend, tracked in `varsco_com`): rendering
+  `optional_products`/`accessory_products` as an actual "Add these too?"
+  upsell prompt at add-to-cart/in-cart time is real additional UI/UX design
+  work, deliberately scoped as a separate follow-up rather than half-built
+  alongside this data-exposure pass. `alternative_products` (bottom-of-page
+  display) and `ribbon`/`tags` (card/detail badges) are direct passthrough
+  and wired up in this same pass.

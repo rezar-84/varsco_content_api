@@ -1,3 +1,5 @@
+import re
+
 from odoo import http
 from odoo.http import request
 
@@ -46,7 +48,37 @@ class VarscoContentApiShop(http.Controller):
         return f"{self._base_url()}/web/image/{model}/{record_id}/{field}"
 
     def _published_templates(self):
-        return request.env["product.template"].sudo().search([("is_published", "=", True)])
+        # website_sequence is the field admins actually reorder products with
+        # in the backend (Website > eCommerce > Products); previously ignored,
+        # so "Featured" sort on the frontend was really just default DB order.
+        return (
+            request.env["product.template"]
+            .sudo()
+            .search([("is_published", "=", True)], order="website_sequence, id")
+        )
+
+    @staticmethod
+    def _strip_html(value):
+        return re.sub(r"<[^>]*>", "", value or "").strip()
+
+    def _description_text(self, template):
+        # description_ecommerce (website_sale's real "storefront description"
+        # field) is the correct source — description_sale is meant for the
+        # sale-order/quotation blurb, a different piece of copy. Fall back to
+        # description_sale for older records that only ever had that filled.
+        return self._strip_html(template.description_ecommerce) or template.description_sale or ""
+
+    @staticmethod
+    def _ribbon_summary(ribbon):
+        if not ribbon:
+            return None
+        return {
+            "name": ribbon.name,
+            "bg_color": ribbon.bg_color,
+            "text_color": ribbon.text_color,
+            "style": ribbon.style,
+            "position": ribbon.position,
+        }
 
     def _category_summary(self, category):
         if not category:
@@ -92,22 +124,28 @@ class VarscoContentApiShop(http.Controller):
         category = template.public_categ_ids[:1]
         variant = template.product_variant_id
         media = self._media_list(template)
+        sell_when_out_of_stock = bool(template.allow_out_of_stock_order)
         return {
             "slug": slug,
             "name": template.name,
-            "summary": template.description_sale or "",
+            "summary": self._description_text(template),
             "url_path": f"/shop/{slug}",
             "category": self._category_summary(category),
             "primary_media": media[0] if media else None,
             "updated_at": self._iso(template.write_date),
             "rating_avg": round(template.rating_avg, 2) if template.rating_count else None,
             "rating_count": template.rating_count,
+            "ribbon": self._ribbon_summary(template.website_ribbon_id),
+            "tags": template.product_tag_ids.mapped("name"),
             "purchase": {
                 "product_id": variant.id,
                 "amount": template.list_price,
                 "currency": template.currency_id.name,
-                "available": template.qty_available > 0,
+                "available": template.qty_available > 0 or sell_when_out_of_stock,
                 "qty_available": template.qty_available,
+                "sell_when_out_of_stock": sell_when_out_of_stock,
+                "show_qty": bool(template.show_availability),
+                "out_of_stock_message": self._strip_html(template.out_of_stock_message),
             },
         }
 
@@ -129,6 +167,15 @@ class VarscoContentApiShop(http.Controller):
             }
         )
 
+    def _cross_sell_summaries(self, templates):
+        """Serialize a recordset of published product.template into
+        CatalogItemSummary shapes. Only ever called from the detail
+        endpoint (never from _summary() itself) — there's no recursion
+        risk, and a list of ~50 shop products doesn't eager-load every
+        one's cross-sell tree, only the single product a visitor is
+        actually looking at."""
+        return [self._summary(t) for t in templates if t.is_published]
+
     @http.route(
         f"{API_PREFIX}/store/products/<string:locale_code>/<path:url_path>",
         type="http",
@@ -146,17 +193,25 @@ class VarscoContentApiShop(http.Controller):
         if not template or not template.is_published:
             return self._not_found("unknown_product")
 
+        # accessory_product_ids is variant-level (product.product); map to
+        # templates and dedupe, since several variants can share one template.
+        accessory_templates = template.accessory_product_ids.product_tmpl_id
+
         data = self._summary(template)
         category = template.public_categ_ids[:1]
+        description_text = self._description_text(template)
         data.update(
             {
                 "eyebrow": category.name or "",
-                "description_html": (
-                    f"<p>{template.description_sale}</p>" if template.description_sale else ""
-                ),
+                "description_html": f"<p>{description_text}</p>" if description_text else "",
                 "media": self._media_list(template),
                 "specification_groups": self._specification_groups(template),
                 "quote_cta_enabled": True,
+                "alternative_products": self._cross_sell_summaries(
+                    template.alternative_product_ids
+                ),
+                "accessory_products": self._cross_sell_summaries(accessory_templates),
+                "optional_products": self._cross_sell_summaries(template.optional_product_ids),
             }
         )
         return request.make_json_response(
@@ -165,7 +220,7 @@ class VarscoContentApiShop(http.Controller):
                 "meta": {"locale": locale_code, "updated_at": self._iso(template.write_date)},
                 "seo": {
                     "title": template.name,
-                    "description": template.description_sale or "",
+                    "description": description_text,
                     "canonical": "",
                     "og": {},
                     "hreflang": {},

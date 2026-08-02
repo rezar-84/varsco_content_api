@@ -2,6 +2,48 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-02 — Full website_sale field audit: cross-sell, ribbon, tags, stock behavior, real description field
+
+- **Context:** VARS asked for an explicit checklist audit — Optional/
+  Accessory/Alternative Products, Packagings, Website, Tags, Website
+  Sequence, Sell-when-Out-of-Stock, Ribbon, Show Available Qty,
+  Out-of-Stock Message, Ecommerce Description — against what
+  `controllers/shop.py` actually exposed. Read the real Odoo source for
+  each field's exact name/model/type before touching code, rather than
+  guessing.
+- **Result: every one of these was a real gap**, not a false alarm — none
+  were exposed before this pass. Fixed all except `product.packaging`
+  (doesn't exist in this Odoo install at all — confirmed via a repo-wide
+  grep, nothing to expose) and `website_id` (judged not worth exposing for
+  a single-website instance).
+- Along the way, found `description_sale` was the wrong field entirely —
+  `description_ecommerce` is website_sale's actual storefront-description
+  field (a different piece of copy than the sale-quotation blurb), now
+  used with a fallback to `description_sale` for older records.
+- **Mid-edit bug caught by the test suite immediately**: an `Edit` call
+  accidentally left the `@http.route` decorator attached to a new private
+  helper method (`_cross_sell_summaries`) instead of the actual route
+  handler it was meant to precede — Odoo silently routed
+  `GET /api/v1/store/products/.../...`  to the helper, which doesn't take
+  the right arguments, 500ing every detail-page request. Caught in
+  seconds by re-running the test suite, not by manual inspection — exactly
+  why this repo runs the real suite after every edit rather than trusting
+  a diff read.
+- `website_sale_stock` (the module `allow_out_of_stock_order`/
+  `show_availability`/`out_of_stock_message` actually live in — a distinct
+  auto-installed bridge module, not `website_sale` itself) added to
+  `depends` explicitly after confirming it was actually installed here,
+  same lesson as the wishlist entry below.
+- `tests/test_shop_api.py` gained 8 new cases; full suite 80/80 green.
+  See `docs/decisions.md` ADR-012 for the full field-by-field record.
+- Manifest version bumped to `19.0.1.10.0`.
+- **Next**: frontend side (tracked in `varsco_com`) — ribbon badge, tags,
+  real `alternative_products` (replacing/supplementing the frontend's own
+  category-based "related products" heuristic), out-of-stock message
+  display. The `optional_products`/`accessory_products` cart-time upsell
+  UI is real additional design work, explicitly deferred as a separate
+  follow-up.
+
 ## 2026-08-02 — Critical: shop product image URLs were relative, 404ing on the frontend's own domain
 
 - **Context:** VARS reported real production 404s — every shop product

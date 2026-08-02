@@ -66,6 +66,25 @@ a real multi-image gallery (`product_template_image_ids`) and
 `specification_groups` mapped from `attribute_line_ids` — the
 same data `erp.varsco.com/shop` itself reads. No curated model involved;
 toggling "Published" on a normal Odoo product is the entire workflow.
+`website_sequence` (the field admins reorder products with in the Website
+app) drives list order — "Featured" sort on the frontend is meaningful, not
+default DB order. Description copy comes from `description_ecommerce`
+(website_sale's real storefront-description field), falling back to
+`description_sale` for older records that only ever had that filled — the
+two are different pieces of copy (quotation blurb vs. storefront body) and
+were conflated before this pass. Also included: `ribbon` (native
+`product.ribbon` — name/colors/style/position, e.g. "New!"/"Sale"), `tags`
+(`product_tag_ids`), and on `purchase`: `sell_when_out_of_stock`
+(`allow_out_of_stock_order` — when true, `available` stays `true` even at
+zero stock, since the product can still be ordered), `show_qty`
+(`show_availability`), `out_of_stock_message`. Detail responses additionally
+include `alternative_products`/`accessory_products`/`optional_products` —
+Odoo's own curated cross-sell relations (`alternative_product_ids`,
+`accessory_product_ids` variant-level mapped to templates+deduped,
+`optional_product_ids`), each serialized through the same `_summary()` used
+everywhere else, published-only. Only ever expanded on the detail endpoint,
+never inside `_summary()` itself, so listing ~50 products never eager-loads
+every one's cross-sell tree.
 
 **Reviews & ratings:** `GET /api/v1/store/products/{locale}/{url_path}/reviews`
 reads Odoo's native `rating.rating` model (`product.template` already
