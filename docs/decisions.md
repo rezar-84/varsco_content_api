@@ -383,3 +383,67 @@ Two changes, requested and scoped explicitly by VARS (superseding ADR-007's
   (module technical name + every `varsco.*` model). Next session that
   picks this up should treat it as its own guardrail-gated task, not
   extend this ADR's scope retroactively.
+
+## ADR-010: Shop reads real Odoo product data, not the curated catalog model
+
+### Status
+Accepted — 2026-08-02
+
+### Decision
+`GET /api/v1/store/products/{locale}` and
+`GET /api/v1/store/products/{locale}/{url_path}` (new, `controllers/shop.py`)
+read `product.template` directly — gated on `is_published`
+(`website_sale`'s native "show on my storefront" flag) — instead of the
+curated `varsco.catalog.item` model. `POST /api/v1/store/checkout`'s
+sellability check changed to match: a line is checkout-able exactly when
+`product.product_tmpl_id.is_published`, replacing the previous
+`item_type == "purchasable_now"` gate. `website_sale` added to `depends`
+for its data model only — its own storefront controllers/templates are
+never installed as public pages by this module or the frontend that
+consumes it.
+
+The Products/Categories backend admin UI added in the immediately-preceding
+session (see that handoff-log entry) is **removed** —
+`views/catalog_views.xml` deleted, dropped from the manifest. It had zero
+real consumers (the frontend's separate `/products` portfolio still reads a
+static mock file, not `/api/v1/products/*`) and wrongly implied it was how
+to manage Shop content.
+
+### Reason
+VARS's actual requirement: port `erp.varsco.com/shop` (Odoo's native
+`website_sale` storefront, confirmed live with 7 real published products at
+decision time) into the new frontend with the same content and URL
+structure — using our own frontend instead of Odoo's storefront pages, not
+a parallel content system requiring every product to be re-entered a second
+time. The curated `varsco.catalog.item` model (ADR-006) is the right fit
+for the separate, deliberately-curated `/products` marketing portfolio —
+reviewed copy, hides raw ERP data — but was the wrong fit for a
+transactional shop, where the whole point is reusing real product data that
+already exists. This was a mistake in the immediately-preceding session:
+building an admin UI for the curated model and presenting it as "how you
+add products to the Shop," when nothing about the Shop actually consumed
+that model.
+
+`request.env['ir.http']._slug()`/`_unslug()` (the same slugify-and-append-id
+helper `website_sale` uses for its own URLs) gives the new endpoints the
+same `/shop/<slug>-<id>` URL shape as the old indexed pages, for free.
+
+### Consequences
+- `docs/architecture.md` §3/§5 updated: new data-flow paragraph and contract
+  rows for `/api/v1/store/products/*`; checkout's data-flow line no longer
+  references `item_type`.
+- New `tests/test_shop_api.py`; `tests/test_checkout_api.py`'s fixtures
+  simplified to a plain published `product.template`, no catalog-item
+  creation.
+- The curated `varsco.catalog.item`/`.category` models, their ACL rows, and
+  `controllers/products.py` (`/api/v1/products/*`) are untouched — that's
+  ADR-006's separate, still-valid decision for the portfolio, not something
+  this ADR revisits.
+- Manifest version bumped to `19.0.1.3.0`.
+- Not done here: per-locale translation-context switching for the new shop
+  endpoints (every locale currently reads the same underlying field
+  values) — a known simplification, documented in `controllers/shop.py`'s
+  docstring, revisit if serving genuinely per-locale product copy becomes a
+  real requirement. Also not done: mapping `product.template.attribute_line_ids`
+  into `specification_groups` — real work, deliberately deferred to the
+  already-tracked "Attributes & variations" backlog item.

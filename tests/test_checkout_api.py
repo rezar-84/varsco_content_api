@@ -32,25 +32,16 @@ class TestCheckoutApi(HttpCase):
             }
         )
 
-        category = cls.env["varsco.catalog.category"].create(
-            {"slug": "checkout-cat", "url_path": "products/checkout-cat", "published": True}
-        )
+        # Checkout-ability is gated purely on is_published (website_sale) --
+        # no separate curation model. See docs/decisions.md's ADR on why the
+        # earlier varsco.catalog.item-based gate was replaced.
         cls.template = cls.env["product.template"].create(
             {
                 "name": "Artemia Cysts 500g",
                 "list_price": 42.5,
                 "standard_price": 10.0,
                 "is_storable": True,
-            }
-        )
-        cls.env["varsco.catalog.item"].create(
-            {
-                "slug": "artemia-cysts",
-                "url_path": "products/checkout-cat/artemia-cysts",
-                "category_id": category.id,
-                "published": True,
-                "item_type": "purchasable_now",
-                "product_template_ids": [(6, 0, [cls.template.id])],
+                "is_published": True,
             }
         )
         cls.product = cls.template.product_variant_id
@@ -112,6 +103,16 @@ class TestCheckoutApi(HttpCase):
         self.authenticate("checkout.buyer@example.com", self.password)
         response = self._checkout(headers={"Origin": "https://varsco.com"})
         self.assertEqual(response.status_code, 200)
+
+    def test_checkout_rejects_unpublished_product(self):
+        unpublished = self.env["product.template"].create(
+            {"name": "Not For Sale Yet", "list_price": 10.0, "is_published": False}
+        )
+        self.authenticate("checkout.buyer@example.com", self.password)
+        response = self._checkout(
+            items=[{"product_id": unpublished.product_variant_id.id, "qty": 1}]
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_checkout_omits_payment_url_without_compatible_provider(self):
         """No payment.provider is configured in this class's setUpClass —

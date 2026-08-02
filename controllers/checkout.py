@@ -7,12 +7,16 @@ from .base import API_PREFIX, require_trusted_origin
 
 
 class VarscoContentApiCheckout(http.Controller):
-    """Direct-checkout endpoint for 'purchasable_now' catalog items only.
+    """Direct-checkout endpoint for published storefront products only.
 
-    Quote-only items (informational / purchasable_later) must never reach a
-    sale.order through this route — the frontend already hides Add to Cart
-    for them, but that's a UI convenience, not a security boundary, so every
-    line is re-validated against varsco.catalog.item.item_type here too.
+    A product is checkout-able exactly when it's published on the website
+    (product.template.is_published, from website_sale) — the same real
+    Odoo product data controllers/shop.py exposes publicly. The frontend
+    already hides Add to Cart for anything not published, but that's a UI
+    convenience, not a security boundary, so every line is re-validated
+    against is_published here too. (Previously gated on the separate
+    varsco.catalog.item curated model — see docs/decisions.md's ADR on why
+    that was the wrong fit for a transactional shop.)
     """
 
     @staticmethod
@@ -27,15 +31,6 @@ class VarscoContentApiCheckout(http.Controller):
         if request.env.user._is_public():
             return None
         return request.env.user.partner_id
-
-    def _directly_sellable_template_ids(self):
-        """product.template ids this addon allows through direct checkout."""
-        items = (
-            request.env["varsco.catalog.item"]
-            .sudo()
-            .search([("item_type", "=", "purchasable_now")])
-        )
-        return set(items.product_template_ids.ids)
 
     @staticmethod
     def _owned_by_partner(partner, candidate_id):
@@ -73,7 +68,6 @@ class VarscoContentApiCheckout(http.Controller):
             if not isinstance(line["qty"], (int, float)) or line["qty"] <= 0:
                 return self._bad_request("invalid_quantity")
 
-        allowed_template_ids = self._directly_sellable_template_ids()
         Product = request.env["product.product"].sudo()
         order_lines = []
         for line in items:
@@ -82,7 +76,7 @@ class VarscoContentApiCheckout(http.Controller):
             ) or Product.search(
                 [("product_tmpl_id", "=", line["product_id"])], limit=1
             )
-            if not product or product.product_tmpl_id.id not in allowed_template_ids:
+            if not product or not product.product_tmpl_id.is_published:
                 return self._bad_request(f"product_not_purchasable:{line['product_id']}")
             if product.qty_available < line["qty"]:
                 return self._bad_request(f"insufficient_stock:{line['product_id']}")

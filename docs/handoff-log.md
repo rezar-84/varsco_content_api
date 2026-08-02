@@ -2,6 +2,18 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-02 — Correction: Shop reads real Odoo product data, not the curated catalog
+
+- **Context:** VARS corrected the immediately-preceding session's direction: the Products/Categories admin UI added there (curated `varsco.catalog.item` model) was the wrong approach entirely. The actual requirement is porting `erp.varsco.com/shop` (Odoo's native `website_sale` storefront — confirmed live with 7 real published products) into the new frontend with the same content/URL structure, using real Odoo product data, not a parallel system requiring every product re-entered a second time. See `docs/decisions.md` ADR-010 for the full record, including the reasoning for why ADR-006's curated model stays right for the *separate* `/products` portfolio but was wrong here.
+- **Removed** last session's `views/catalog_views.xml` (Products/Categories menu) — zero real consumers, wrongly implied it managed Shop content.
+- **New `controllers/shop.py`**: `GET /api/v1/store/products/{locale}` and `.../{locale}/{url_path}`, reading `product.template` directly, gated on `is_published` (`website_sale`, newly added to `depends`). Slugs generated via `request.env['ir.http']._slug()`/`_unslug()` — the exact same helper `website_sale` uses internally, so URLs match its own `/shop/<slug>-<id>` convention.
+- **`checkout.py`** simplified: sellability check is now a direct `product.product_tmpl_id.is_published`, replacing the `varsco.catalog.item.item_type == "purchasable_now"` lookup.
+- **Verified for real, not just "tests pass"**: created a product via plain `product.template.create()` (no catalog-item involved) with `is_published=False`, confirmed absent from `/api/v1/store/products/en`; toggled `is_published=True` the normal way; confirmed it appeared immediately with correct real price/stock/slug; confirmed detail-by-slug lookup works. This is the literal "toggle Published, it shows up" workflow VARS asked for.
+- Test suite: 53/53 green (new `test_shop_api.py` + updated `test_checkout_api.py` fixtures). Along the way, found and cleaned up leftover test data in the shared `odoo19_test_varsco` database from earlier manual seeding sessions (4 `local-*` catalog items, a stray `payment.provider`) that was causing 2 unrelated pre-existing tests to fail — not a code regression, just accumulated manual-testing residue.
+- Manifest version bumped to `19.0.1.3.0`.
+- **Not done, deliberately**: per-locale translation-context switching for the new shop endpoints (documented as a known simplification in `shop.py`'s docstring); mapping product attributes into `specification_groups` (deferred to the tracked "Attributes & variations" backlog item).
+- **Next**: on the `varsco_com` frontend side (tracked in that repo) — point `store-data.ts` at the new `/api/v1/store/products/*` endpoints instead of the curated `/api/v1/products/*` ones; update `varsco_odoo_staging`'s vendored copy and its README (currently tells the reader to use the now-removed catalog admin UI).
+
 ## 2026-08-02 — Catalog admin UI (Products/Categories backend views)
 
 - **Context:** VARS installed this module + `midvex_sale_payment_link` on production and pushed the frontend, but `/shop` still showed zero products. Root cause: `varsco.catalog.category`/`varsco.catalog.item`/their `.i18n` models had full ACL grants but **zero backend views or menu** — there was no way for a human to create catalog content at all short of raw Developer Mode technical-model editing.
