@@ -2,6 +2,34 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-02 — Wishlist (Phase 3 of shop feature parity)
+
+- **Context:** continuing the phased shop-feature-parity work (reviews/
+  ratings shipped just before this). Wishlist, like reviews, turned out to
+  be native Odoo infrastructure — `website_sale_wishlist`'s `product.wishlist`
+  model, `auto_install`-installed alongside `website_sale`.
+- **New `controllers/wishlist.py`**: `GET`/`POST`/`DELETE /api/v1/store/wishlist`,
+  session-authenticated only (no guest wishlist, unlike the cart). Items
+  serialize through the shop controller's own `_summary()` method (imported
+  directly, `VarscoContentApiShop()._summary(...)`) so a wishlist item is
+  byte-for-byte the same shape as a `/api/v1/store/products/*` list item —
+  zero shape drift, and the frontend can reuse its existing product card
+  component with no adapter code.
+- `website_sale_wishlist` added to `depends` explicitly — it was already
+  transitively auto-installed via `website_sale`, but this module now reads
+  its model directly, so the dependency needed to be real, not implicit.
+- **Tests**: `tests/test_wishlist_api.py`, 9 cases. Full suite: 73/73 green
+  (upgraded the module locally to pick up the new dependency, no issues).
+- Manifest version bumped to `19.0.1.8.0`. See `docs/decisions.md` ADR-011's
+  2026-08-02 amendment.
+- **Not built here**: product comparison, address book — still separately
+  scoped follow-ups.
+- **Next**: frontend side (`varsco_com`, tracked there) — `WishlistContext`,
+  heart/save icon on product cards and the detail page, an
+  `/account/wishlist` page. Deferred this session in favor of a more
+  visible, user-requested priority: sidebar filters on `/shop` (category +
+  price range), replacing the current flat horizontal filter toolbar.
+
 ## 2026-08-02 — Product reviews & ratings (Phase 2 of shop feature parity)
 
 - **Context:** VARS asked to close the gap between `/shop` and the

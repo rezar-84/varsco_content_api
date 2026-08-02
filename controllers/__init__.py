@@ -5,3 +5,4 @@ from . import portal
 from . import checkout
 from . import shop
 from . import reviews
+from . import wishlist

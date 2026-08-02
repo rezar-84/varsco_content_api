@@ -78,6 +78,15 @@ exactly how `controllers/checkout.py` creates orders — and rejects a second
 review from the same partner for the same product (enforced at the API
 layer; `rating.rating` itself has no uniqueness constraint).
 
+**Wishlist:** `GET`/`POST`/`DELETE /api/v1/store/wishlist` read/write Odoo's
+native `product.wishlist` model (`website_sale_wishlist`, `auto_install`
+alongside `website_sale`, now an explicit `depends` since this module
+directly relies on its model) — no custom wishlist model. Session-
+authenticated only; unlike the cart, the wishlist has no guest/local-only
+mode. Items are serialized through the exact same `_summary()` shape as
+`/api/v1/store/products/*`, so the frontend renders a wishlist item with
+the same product card component it already has.
+
 **Lead capture:** visitor submits a form on the frontend → frontend's
 *server* validates → `POST /api/v1/leads` (bearer-token authenticated) →
 Odoo creates `crm.lead` with `type: "lead"` (explicit — see ADR-008) and a
@@ -159,6 +168,9 @@ this is deliberate, not `auth="user"`):
 | PUT | `/api/v1/portal/profile` | Allow-listed `res.partner` field update |
 | POST | `/api/v1/store/checkout` | Validates + creates a draft `sale.order`; response includes `payment_url` when a payment provider is available |
 | POST | `/api/v1/store/products/{locale}/{url_path}/reviews` | `{rating, feedback?}` → creates a `rating.rating`; 403 without a verified purchase, 409 on a second review for the same product |
+| GET | `/api/v1/store/wishlist` | The authenticated partner's wishlist, each item in the same shape as `/api/v1/store/products/*` |
+| POST | `/api/v1/store/wishlist` | `{product_id}` (a `product.product` variant id, same field `purchase.product_id` already exposes) → adds/returns the item, idempotent |
+| DELETE | `/api/v1/store/wishlist/{product_id}` | Removes the item if owned by the authenticated partner; no-op otherwise |
 
 **Presentation discipline:** catalog `description_html`/media fields
 contain sanitized semantic prose, media references, and identifiers only —

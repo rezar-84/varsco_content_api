@@ -502,12 +502,26 @@ trustworthiness.
   verified-purchase gate, duplicate rejection, rating-range validation,
   unpublished-product rejection). `docs/architecture.md` §3/§5 updated.
 - Manifest version bumped to `19.0.1.7.0`.
-- Wishlist, product comparison, and the address book are **not** built in
-  this pass — scoped as separate follow-up phases (see `varsco_com`'s own
-  planning notes from this session) using the same native-data principle:
-  `product.wishlist` for wishlist, `res.partner` child contacts for
-  addresses.
+- Product comparison and the address book are **not** built in this pass —
+  scoped as separate follow-up phases (see `varsco_com`'s own planning
+  notes from this session), same native-data principle: `res.partner`
+  child contacts for addresses, `website_sale_comparison` for comparison.
 - Not done here: pagination on the reviews list (fine at current review
   volume; revisit if a product accumulates enough reviews for payload size
   to matter), review moderation/reporting, and a "publisher reply" surface
   (`rating.rating.publisher_comment` exists natively but isn't exposed).
+
+- **Amended 2026-08-02 (`19.0.1.8.0`):** wishlist is now built too — new
+  `controllers/wishlist.py` over the native `product.wishlist` model
+  (`website_sale_wishlist`, `auto_install` alongside `website_sale`, now
+  an explicit `depends` entry since this module reads/writes its model
+  directly rather than relying on the transitive auto-install). Session-
+  authenticated only (`GET`/`POST`/`DELETE /api/v1/store/wishlist`), items
+  serialized through `VarscoContentApiShop._summary()` — the exact same
+  shape as `/api/v1/store/products/*`, so a wishlist item renders with the
+  same product card the rest of the frontend already uses. Adding an
+  already-wishlisted product is idempotent (200, not an error) — unlike
+  reviews, there's no reason to reject a repeat "add to wishlist" click.
+  `tests/test_wishlist_api.py` (9 cases: auth on all three verbs, add,
+  duplicate idempotency, list shape, remove, remove doesn't leak across
+  partners). Full suite: 73/73 green.
