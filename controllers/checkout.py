@@ -107,10 +107,16 @@ class VarscoContentApiCheckout(http.Controller):
                 }
             )
         )
-        return request.make_json_response(
-            {
-                "order_id": order.id,
-                "amount_total": order.amount_total,
-                "currency": order.currency_id.name,
-            }
-        )
+        response = {
+            "order_id": order.id,
+            "amount_total": order.amount_total,
+            "currency": order.currency_id.name,
+        }
+        # Delegates entirely to midvex_sale_payment_link: no provider/payment
+        # logic lives in this module. None means no compatible payment
+        # provider is configured — the field is simply omitted, and the
+        # frontend falls back to its non-payment "order submitted" state.
+        payment_url = order.get_payment_portal_url()
+        if payment_url:
+            response["payment_url"] = payment_url
+        return request.make_json_response(response)

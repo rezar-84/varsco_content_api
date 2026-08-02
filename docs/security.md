@@ -15,10 +15,27 @@ external frontend and Odoo.
 | `POST /api/v1/store/checkout` | `auth="user"` session | Same session mechanism as portal |
 | `POST /api/v1/portal/auth/register` | None (public) — creates the account itself | Rate-limited at the frontend edge like any other public POST; always creates `base.group_portal` only, never `base.group_user` |
 
-**Dormant** credential surface: Iyzico payment integration. Kept in Odoo's
-secret storage as-is per prior VARS confirmation for a future commerce
-phase — include it in any credential-rotation routine so it's healthy when
-needed, but don't surface it anywhere new until that phase is scoped.
+**Active** credential surface: Iyzico payment integration (`payment_iyzico`,
+configured directly in Odoo — this module never touches its credentials).
+`POST /api/v1/store/checkout` may now return a `payment_url` pointing at the
+order's customer portal page, which is where Odoo's own `payment`/
+`payment_iyzico` machinery takes over entirely (redirect, webhook,
+transaction verification). This module's only involvement is deciding
+*whether* to include that URL — via `midvex_sale_payment_link`'s
+`sale.order.get_payment_portal_url()`, which itself contains no
+Iyzico-specific or otherwise provider-specific logic, only the generic
+`payment.provider._get_compatible_providers()` check. The URL is always
+Odoo-generated (`sale.order.get_portal_url()`, core `portal` module) and
+never derived from client-supplied input, so this introduces no new
+injection/open-redirect surface. Include Iyzico's credentials in any
+credential-rotation routine as usual.
+
+**Config management:** `write_token`, `base_url`, and
+`allowed_frontend_origin` are editable via Settings → Varsco Content API
+(a `res.config.settings` panel this module adds) rather than requiring
+direct System Parameters/XML access — the write token has a "Generate New
+Token" button that rotates it immediately (with a confirmation prompt,
+since it invalidates whatever the frontend currently has configured).
 
 ## 2. Session/cookie posture
 

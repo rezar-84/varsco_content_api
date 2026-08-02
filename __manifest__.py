@@ -12,15 +12,24 @@ A separate, archived module (varsco_content_cms, installable=False) holds
 the page/blog/menu/redirect content system built for a now-discontinued
 Astro frontend — not part of this module's active contract.
 """,
-    "version": "19.0.1.0.0",
+    "version": "19.0.1.1.0",
     "category": "Website",
     "license": "LGPL-3",
     "author": "Midvex",
     "website": "https://midvex.com",
-    "depends": ["product", "web", "sale", "stock", "crm", "portal"],
+    "depends": [
+        "product",
+        "web",
+        "sale",
+        "stock",
+        "crm",
+        "portal",
+        "midvex_sale_payment_link",
+    ],
     "data": [
         "security/ir.model.access.csv",
         "data/content_locales.xml",
+        "views/res_config_settings_views.xml",
     ],
     "installable": True,
     "application": False,

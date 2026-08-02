@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.varsco.content.api</field>
+        <field name="model">res.config.settings</field>
+        <field name="priority" eval="90"/>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app string="Varsco Content API" string_id="varsco_content_api" name="varsco_content_api">
+                    <block title="Frontend Access" name="varsco_content_api_frontend_access">
+                        <setting
+                            string="Write Token"
+                            help="Used by the frontend's server (never its browser) to authenticate POST /api/v1/leads"
+                        >
+                            <field name="varsco_content_api_write_token" password="True" placeholder="Not set"/>
+                            <div class="mt16">
+                                <button
+                                    name="action_varsco_content_api_generate_write_token"
+                                    type="object"
+                                    string="Generate New Token"
+                                    class="btn-secondary"
+                                    confirm="This immediately replaces the current token. Any frontend still using the old one will start getting 401s on lead submission until updated. Continue?"
+                                />
+                            </div>
+                        </setting>
+                        <setting
+                            string="Public Base URL"
+                            help="This instance's own public base URL, used to build absolute links returned by the API. Leave blank to fall back to the standard Odoo base URL."
+                        >
+                            <field name="varsco_content_api_base_url" placeholder="https://erp.example.com"/>
+                        </setting>
+                        <setting
+                            string="Allowed Frontend Origin(s)"
+                            help="Comma-separated Origins allowed to call checkout/profile directly from a browser"
+                        >
+                            <field name="varsco_content_api_allowed_frontend_origin" placeholder="https://varsco.com"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_varsco_content_api_config_settings" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'varsco_content_api'}</field>
+    </record>
+</odoo>

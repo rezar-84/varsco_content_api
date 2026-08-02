@@ -112,3 +112,41 @@ class TestCheckoutApi(HttpCase):
         self.authenticate("checkout.buyer@example.com", self.password)
         response = self._checkout(headers={"Origin": "https://varsco.com"})
         self.assertEqual(response.status_code, 200)
+
+    def test_checkout_omits_payment_url_without_compatible_provider(self):
+        """No payment.provider is configured in this class's setUpClass —
+        the response must not claim a payment step exists."""
+        self.authenticate("checkout.buyer@example.com", self.password)
+        response = self._checkout()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("payment_url", json.loads(response.content))
+
+
+@tagged("post_install", "-at_install", "varsco_content")
+class TestCheckoutApiWithPaymentProvider(TestCheckoutApi):
+    """Same buyer/catalog fixtures as TestCheckoutApi, plus a compatible
+    payment provider — asserts checkout delegates correctly to
+    midvex_sale_payment_link (docs/decisions.md's Iyzico-via-portal ADR)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.env["payment.provider"].create(
+            {
+                "name": "Test Provider",
+                "code": "none",
+                "state": "test",
+                "is_published": True,
+            }
+        )
+
+    def test_checkout_includes_payment_url_with_compatible_provider(self):
+        self.authenticate("checkout.buyer@example.com", self.password)
+        response = self._checkout()
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        order = self.env["sale.order"].browse(body["order_id"])
+        self.assertIn("payment_url", body)
+        self.assertTrue(body["payment_url"].startswith("http"))
+        self.assertIn(f"/my/orders/{order.id}", body["payment_url"])
+        self.assertIn("access_token=", body["payment_url"])

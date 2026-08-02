@@ -305,3 +305,81 @@ change under time pressure.
   the design: add the token→company/source config table, then extend
   `/api/v1/leads` with an optional `product_slugs` field, resolve categories
   via `varsco.catalog.item`, and apply/create matching `crm.tag` records.
+
+## ADR-009: Iyzico payment via a new generic module; Settings UI for existing config
+
+### Status
+Accepted — 2026-08-02
+
+### Decision
+Two changes, requested and scoped explicitly by VARS (superseding ADR-007's
+"don't surface [Iyzico] anywhere new until that phase is scoped" note — this
+*is* that scoping):
+
+1. **`POST /api/v1/store/checkout` gains an optional `payment_url`.** When a
+   compatible `payment.provider` exists for the created order, the response
+   includes that order's absolute customer-portal URL
+   (`/my/orders/<id>?access_token=...`). Landing there renders Odoo's own
+   "Pay Now" flow — already fully implemented natively by core `sale`,
+   `portal`, `payment`, and `payment_iyzico` — so no payment-processing,
+   redirect-handling, or webhook code was written in this module, or
+   anywhere client/provider-specific at all.
+2. **The `payment_url` generation logic lives in a brand-new, standalone
+   module, `midvex_sale_payment_link`** (`sale.order.get_payment_portal_url()`),
+   not inline in this module's `checkout.py`. It depends only on `sale`,
+   `portal`, `payment` — no dependency on `varsco_content_api`, no
+   VARS-specific code, no configuration of its own (it only reads Odoo's
+   native `payment.provider` records). `varsco_content_api` now depends on
+   it and calls the one method.
+3. **A `res.config.settings` panel** (Settings → Varsco Content API) now
+   exposes `write_token` (with a one-click "Generate New Token" rotation
+   button), `base_url`, and `allowed_frontend_origin` as real form fields,
+   replacing the previous requirement to edit raw System Parameters or XML
+   data to configure this module.
+
+### Reason
+- **Module boundary**: "generate a payment-ready portal URL for an order" is
+  a completely generic capability with no catalog/lead/VARS-specific logic
+  — splitting it out means it starts reusable from day one (any future
+  project can depend on it standalone) rather than accumulating naming debt
+  inside this VARS-branded module.
+- **Reuse over reimplementation**: `payment_iyzico` (and the core `payment`
+  framework generally) already fully implements the redirect → webhook →
+  transaction-verification → order-confirmation cycle. Re-implementing any
+  part of that inside this module's API surface would duplicate
+  already-correct, already-tested Odoo core behavior and materially expand
+  this module's security surface for no benefit.
+- **Settings UI**: raised independently by VARS as a general
+  "don't hardcode, give an interface" preference for future modules. Since
+  this module's config values were already `ir.config_parameter`-driven
+  (not hardcoded), the only real gap was the *admin-facing* interface to
+  set them — this closes that gap without any underlying architecture
+  change.
+- **Full module/model rename considered and explicitly deferred.** VARS
+  asked whether this module should be renamed to a fully generic,
+  Odoo-Apps-marketplace-ready name (dropping the `varsco`/`varsco.*`
+  prefix from the module and every model). Verified this module was
+  already built config/data-driven with reuse in mind (per this file's own
+  intent and `CLAUDE.md` §1: "this is a template, not a one-off"), but the
+  branded technical naming is real, unresolved debt. Deferred rather than
+  bundled into this change because a model rename on a module with live
+  data is a genuine migration-risk change (`CLAUDE.md` §6 guardrail) that
+  deserves its own dedicated, carefully-planned session — ideally once a
+  second real client is onboarded to prove the template actually
+  generalizes in practice, not just in theory.
+
+### Consequences
+- `docs/architecture.md` §5's checkout row and payment description updated.
+- `docs/security.md` §1 updated: Iyzico moves from "dormant" to "active";
+  documents that the portal URL is always Odoo-generated, never
+  client-supplied (no new injection/open-redirect surface); documents the
+  new Settings UI as the supported way to manage this module's config.
+- New module `midvex_sale_payment_link` (`custom-addons/midvex_sale_payment_link/`)
+  — own manifest, tests, README; LGPL-3, no third-party dependencies beyond
+  core Odoo.
+- `varsco_content_api/__manifest__.py` depends on it; version bumped to
+  `19.0.1.1.0`.
+- **Not done in this pass, deliberately**: the full generic rename
+  (module technical name + every `varsco.*` model). Next session that
+  picks this up should treat it as its own guardrail-gated task, not
+  extend this ADR's scope retroactively.
