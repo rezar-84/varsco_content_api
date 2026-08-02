@@ -2,6 +2,58 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-02 — Critical: portal login/register returned a session_id Odoo would reject
+
+- **Context:** while doing a genuine end-to-end verification of the
+  "unauthorised at checkout" bug reported by VARS (login through the real
+  frontend dev server, then checkout with the resulting session — not just
+  `self.authenticate()` in a test, which bypasses this entirely), checkout
+  still 401'd even with a fresh, correct login. Reproduced with plain curl
+  against this module directly (no frontend involved) and found the actual
+  cause: `POST /api/v1/portal/auth/login`'s JSON body `session_id` field and
+  its own response's `Set-Cookie: session_id=...` header carried **two
+  different values**.
+- **Root cause**: `request.session.authenticate()` only sets
+  `session.should_rotate = True` — the actual `sid` rotation (a real Odoo
+  security mechanism, not a bug in itself) happens later, in the response
+  dispatch pipeline, unless forced synchronously via `request._save_session()`
+  first. `portal_login()`/`portal_register()` read `request.session.sid`
+  directly in the controller body, before that rotation ran — so the JSON
+  field was always the stale, pre-rotation value, while the cookie Odoo
+  actually set was the real, working one. Core Odoo's own
+  `/web/session/authenticate` (`addons/web/controllers/session.py`) calls
+  `request._save_session(env)` for exactly this reason before reading
+  session data back; this module's hand-rolled portal auth never did.
+- **Impact**: this affected **every single login and registration** through
+  this API since the portal auth flow was first built (2026-07-31 handoff
+  entry below) — not an edge case. Any client that stores the JSON body's
+  `session_id` as its session cookie (as `varsco_com`'s frontend does) gets
+  a value Odoo rejects as unauthorized on every subsequent request. This is
+  the real, direct cause of "user gets unauthorised error on checkout
+  process" — more fundamental than the checkout-error-message and
+  cookie-lifetime issues also fixed this session (tracked in `varsco_com`),
+  which were real but secondary.
+- **Fix**: both `portal_login()` and `portal_register()` in
+  `controllers/portal.py` now call `request._save_session(request.env)`
+  immediately after a successful `authenticate()`, before reading
+  `request.session.sid` — matching core Odoo's own pattern exactly.
+- **Tests**: `test_portal_api.py`/`test_registration_api.py` each gained a
+  regression test asserting the JSON body's `session_id` equals the
+  response's `Set-Cookie` session id. (An earlier version of these tests
+  also made a second live HTTP call to prove the id actually authenticates
+  — dropped after it deadlocked against Odoo's `TestCursor` single-test-lock
+  mechanism; the equality assertion alone deterministically covers the bug,
+  since Odoo's session store guarantees a correct sid authenticates.) Full
+  suite: 56/56 green.
+- **Verified for real, twice**: (1) direct curl against this module with no
+  frontend involved — confirmed the two session ids differed pre-fix and
+  matched post-fix, and that only the cookie's value worked for checkout;
+  (2) full login → checkout round trip through the actual running
+  `varsco_com` dev server with a real portal user and a real published
+  product — 401 before the fix, `201 Created` after. All fixtures cleaned
+  up afterward.
+- Manifest version bumped to `19.0.1.5.0`.
+
 ## 2026-08-02 — Shop product images/specs: close the gallery/attributes gap
 
 - **Context:** VARS reported production shop products still look

@@ -64,6 +64,19 @@ class VarscoContentApiPortal(http.Controller):
         except AccessDenied:
             return self._unauthorized()
 
+        # authenticate() only sets session.should_rotate — the actual sid
+        # rotation happens later, in the response-dispatch pipeline, unless
+        # forced now via _save_session() (exactly what core Odoo's own
+        # /web/session/authenticate does before reading session data back).
+        # Without this, request.session.sid below is still the PRE-rotation
+        # value: different from what the Set-Cookie header on this same
+        # response ends up carrying, so a caller that stores this JSON
+        # field as their session id (as this frontend's login flow does)
+        # gets a value Odoo will reject as unauthorized on every subsequent
+        # request — this was the real cause behind "unauthorised at
+        # checkout", not just the separate cookie-lifetime mismatch.
+        request._save_session(request.env)
+
         partner = request.env.user.partner_id
         return request.make_json_response(
             {
@@ -160,6 +173,10 @@ class VarscoContentApiPortal(http.Controller):
             return request.make_json_response(
                 {"error": "account_created_but_login_failed"}, status=500
             )
+
+        # See portal_login()'s identical call for why this is required —
+        # without it, session_id below is the pre-rotation value.
+        request._save_session(request.env)
 
         return request.make_json_response(
             {

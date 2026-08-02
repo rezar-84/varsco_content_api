@@ -44,6 +44,32 @@ class TestPortalApi(HttpCase):
         self.assertTrue(payload["session_id"])
         self.assertEqual(payload["user"]["email"], "portal.buyer@example.com")
 
+    def test_login_response_session_id_matches_the_actual_session_cookie(self):
+        """Regression test: session.authenticate() only flags should_rotate —
+        the sid itself doesn't change until _save_session() runs. Reading
+        session.sid before forcing that (portal_login()'s previous bug)
+        returns a pre-rotation value in the JSON body that differs from the
+        Set-Cookie header on the very same response. A caller (this repo's
+        own frontend) that stores the JSON field as its session id then gets
+        rejected as unauthorized on every following request — this is
+        exactly what previously produced "unauthorised" checkout errors.
+        """
+        response = self.url_open(
+            "/api/v1/portal/auth/login",
+            data=json.dumps(
+                {"login": "portal.buyer@example.com", "password": self.password}
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        payload = json.loads(response.content)
+        self.assertEqual(
+            payload["session_id"],
+            response.cookies.get("session_id"),
+            "JSON body's session_id must match the Set-Cookie session_id — "
+            "otherwise every caller that authenticates against this "
+            "endpoint gets a session id Odoo will reject as unauthorized.",
+        )
+
     def test_orders_requires_authentication(self):
         response = self.url_open("/api/v1/portal/orders")
         self.assertEqual(response.status_code, 401)

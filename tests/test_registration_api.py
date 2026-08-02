@@ -28,6 +28,12 @@ class TestRegistrationApi(HttpCase):
         self.assertTrue(payload["session_id"])
         self.assertEqual(payload["user"]["email"], "new.buyer@example.com")
 
+        # Regression check (see test_portal_api.py's identical test for the
+        # full rationale): the JSON body's session_id must match the actual
+        # Set-Cookie session, or a caller storing this field gets rejected
+        # as unauthorized on every following request.
+        self.assertEqual(payload["session_id"], response.cookies.get("session_id"))
+
         user = self.env["res.users"].sudo().search([("login", "=", "new.buyer@example.com")])
         self.assertEqual(len(user), 1)
         self.assertIn(self.env.ref("base.group_portal"), user.group_ids)
