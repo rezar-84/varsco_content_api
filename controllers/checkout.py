@@ -78,7 +78,15 @@ class VarscoContentApiCheckout(http.Controller):
             )
             if not product or not product.product_tmpl_id.is_published:
                 return self._bad_request(f"product_not_purchasable:{line['product_id']}")
-            if product.qty_available < line["qty"]:
+            # Mirrors shop.py's _summary() availability logic: a backorderable
+            # product (allow_out_of_stock_order) stays purchasable at zero
+            # stock — the frontend shows it as available/enables Add to Cart
+            # on that same basis, so rejecting it here would break checkout
+            # for exactly the products this flag exists to support.
+            if (
+                product.qty_available < line["qty"]
+                and not product.product_tmpl_id.allow_out_of_stock_order
+            ):
                 return self._bad_request(f"insufficient_stock:{line['product_id']}")
             order_lines.append((0, 0, {"product_id": product.id, "product_uom_qty": line["qty"]}))
 

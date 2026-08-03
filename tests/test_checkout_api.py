@@ -114,6 +114,51 @@ class TestCheckoutApi(HttpCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_checkout_rejects_insufficient_stock(self):
+        # allow_out_of_stock_order defaults True on product.template (see
+        # website_sale_stock), so this must be a dedicated non-backorderable
+        # product rather than the shared self.product fixture, or the
+        # backorder exemption added for the sibling test below would mask
+        # the very check this test exists to exercise.
+        limited = self.env["product.template"].create(
+            {
+                "name": "Limited Stock Product",
+                "list_price": 10.0,
+                "is_storable": True,
+                "is_published": True,
+                "allow_out_of_stock_order": False,
+            }
+        )
+        warehouse = self.env["stock.warehouse"].search([], limit=1)
+        self.env["stock.quant"]._update_available_quantity(
+            limited.product_variant_id, warehouse.lot_stock_id, 2
+        )
+        self.authenticate("checkout.buyer@example.com", self.password)
+        response = self._checkout(
+            items=[{"product_id": limited.product_variant_id.id, "qty": 999}]
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_checkout_allows_backorderable_product_despite_zero_stock(self):
+        """Mirrors shop.py's _summary() availability logic (qty_available > 0
+        OR sell_when_out_of_stock) — the frontend shows a backorderable
+        product as available/enables Add to Cart on that same basis, so
+        checkout must accept it too, not just the read-side API."""
+        backorderable = self.env["product.template"].create(
+            {
+                "name": "Backorderable Product",
+                "list_price": 10.0,
+                "is_storable": True,
+                "is_published": True,
+                "allow_out_of_stock_order": True,
+            }
+        )
+        self.authenticate("checkout.buyer@example.com", self.password)
+        response = self._checkout(
+            items=[{"product_id": backorderable.product_variant_id.id, "qty": 5}]
+        )
+        self.assertEqual(response.status_code, 200)
+
     def test_checkout_omits_payment_url_without_compatible_provider(self):
         """No payment.provider is configured in this class's setUpClass —
         the response must not claim a payment step exists."""

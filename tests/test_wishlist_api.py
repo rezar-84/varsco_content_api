@@ -62,6 +62,27 @@ class TestWishlistApi(HttpCase):
         response = self._add(product_id=999999)
         self.assertEqual(response.status_code, 404)
 
+    def test_add_unpublished_product_is_404(self):
+        unpublished = self.env["product.template"].create(
+            {"name": "Not Published Yet", "list_price": 5.0, "is_published": False}
+        )
+        self.authenticate("wishlist.buyer@example.com", self.password)
+        response = self._add(product_id=unpublished.product_variant_id.id)
+        self.assertEqual(response.status_code, 404)
+
+    def test_list_hides_item_after_product_is_unpublished(self):
+        template = self.env["product.template"].create(
+            {"name": "Later Unpublished", "list_price": 5.0, "is_published": True}
+        )
+        self.authenticate("wishlist.buyer@example.com", self.password)
+        response = self._add(product_id=template.product_variant_id.id)
+        self.assertEqual(response.status_code, 201)
+
+        template.is_published = False
+        list_response = self.url_open("/api/v1/store/wishlist")
+        names = [item["name"] for item in json.loads(list_response.content)["data"]]
+        self.assertNotIn("Later Unpublished", names)
+
     def test_add_creates_wishlist_item_and_list_returns_it(self):
         self.authenticate("wishlist.buyer@example.com", self.password)
         response = self._add()

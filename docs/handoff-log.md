@@ -2,6 +2,16 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-03 — Quality-review fixes: checkout stock validation, wishlist test coverage
+
+- **Context:** VARS asked for a security + quality review of this session's ecommerce work. Security review came back clean. Quality review found 4 issues; 3 were frontend-only (see `varsco_com`'s own history) and 1 was here.
+- **Real bug fixed:** `checkout.py`'s stock validation never accounted for `allow_out_of_stock_order` ("Sell when Out-of-Stock"). A backorderable product — shown as available with Add to Cart enabled on the frontend, per `shop.py`'s own `_summary()` availability logic (`qty_available > 0 or sell_when_out_of_stock`) — would 400 with `insufficient_stock` at actual checkout. Fixed by mirroring the same OR-exemption in `checkout.py`.
+- **Caught the fix's own blind spot via the test suite, not code review:** the new regression test (`test_checkout_rejects_insufficient_stock`) initially failed — 200 instead of the expected 400. Root cause: `allow_out_of_stock_order` **defaults to `True`** on `product.template` (`website_sale_stock`), so the shared `self.product` test fixture (never explicitly set the field) was itself backorderable, silently exempted from the very check the test meant to exercise. Not a bug in the fix — the fix and `shop.py` are both correctly mirroring Odoo's real default (products are backorderable unless explicitly configured otherwise). Fixed the test to use its own dedicated product with `allow_out_of_stock_order: False`, matching the pattern the sibling `test_checkout_allows_backorderable_product_despite_zero_stock` test already used for the opposite case.
+- **Lesson for future field work:** any new field whose Odoo core default is non-obvious (here, `True` where `False` would've been the naive guess) needs that default confirmed from source, not assumed — a test fixture relying on an implicit default silently tests the wrong scenario.
+- Added 2 wishlist tests that were missing despite the unpublished-product gating being explicitly deliberate/commented behavior: adding an unpublished product returns 404, and a previously-wishlisted product disappears from the list once unpublished.
+- Test suite: 84/84 green. Manifest version bumped to `19.0.1.11.0`.
+- **Next:** none of this — or any of this session's other ecommerce work — is live on production `erp.varsco.com`/`varsco.com` until someone with production access pulls this module and runs the Odoo module upgrade.
+
 ## 2026-08-02 — Full website_sale field audit: cross-sell, ribbon, tags, stock behavior, real description field
 
 - **Context:** VARS asked for an explicit checklist audit — Optional/
