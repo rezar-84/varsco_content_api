@@ -14,7 +14,7 @@ COUNTRY_NAME_ALIASES = {
 def resolve_country(name):
     """Look up a res.country from free-text form input, tolerating the
     common name mismatches above and, as a last resort, an ISO 3166-1
-    alpha-2/3 code — returns an empty recordset if nothing matches."""
+    alpha-2 code — returns an empty recordset if nothing matches."""
     Country = request.env["res.country"].sudo()
     cleaned = (name or "").strip()
     country = Country.search([("name", "=", cleaned)], limit=1)
@@ -22,7 +22,12 @@ def resolve_country(name):
         alias = COUNTRY_NAME_ALIASES.get(cleaned.lower())
         if alias:
             country = Country.search([("name", "=", alias)], limit=1)
-    if not country and cleaned:
+    if not country and len(cleaned) == 2:
+        # res.country.code is a 2-char column — comparing it to a longer
+        # literal gets silently truncated by Postgres's implicit cast
+        # (CAST('NOWHERELAND' AS varchar(2)) = 'NO', no error), so any
+        # garbage input longer than 2 chars would otherwise false-match
+        # whatever real country happens to share its first two letters.
         country = Country.search([("code", "=", cleaned.upper())], limit=1)
     return country
 

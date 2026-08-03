@@ -2,6 +2,15 @@
 
 Running session-by-session record of what happened, in reverse-chronological order (newest first).
 
+## 2026-08-03 — Address book (Phase 5 of shop feature parity)
+
+- **New `controllers/addresses.py`**: `GET/POST /api/v1/store/addresses`, `PUT/DELETE /api/v1/store/addresses/{id}` — backed by plain `res.partner` child contacts (`type` in `invoice`/`delivery`) of the authenticated partner, not a new model. This is strictly the *extra* addresses a buyer can save beyond themselves; the buyer's own partner record stays managed via the existing `PUT /api/v1/portal/profile`. `checkout.py` was not touched — its `shipping_partner_id`/`billing_partner_id` ownership check (`_owned_by_partner`) already covers these contacts unchanged, verified by a new end-to-end test creating an address then using it as `shipping_partner_id` in a real checkout call.
+- **Two real bugs found and fixed while writing the test suite, not by inspection:**
+  1. `base.py`'s shared `resolve_country()` helper — used by `portal_register`/`portal_profile_update` too — had a silent false-match bug: `res.country.code` is a 2-char DB column, and comparing it to a longer literal (e.g. `"Nowhereland"`) gets silently truncated by Postgres's implicit cast (`CAST('NOWHERELAND' AS varchar(2)) = 'NO'`, no error), so garbage country input could resolve to an unrelated real country sharing its first two letters. Fixed by only attempting the code-based lookup when the input is exactly 2 characters.
+  2. `address_delete`'s FK-violation handling initially caught `(UserError, ValidationError)` around `address.unlink()` and never fired — the actual exception at that point is a raw `psycopg2.errors.ForeignKeyViolation` (`unlink()`'s `DELETE FROM res_partner` is plain SQL); Odoo only translates it into a friendly `UserError` much higher up the dispatch stack, past where a controller can catch it. Fixed by catching `psycopg2.IntegrityError` directly, wrapped in a `cr.savepoint()` so the aborted DELETE doesn't poison the rest of the request's transaction.
+- Test suite: 99/99 green (15 new address tests + all existing). Manifest version bumped to `19.0.1.12.0`.
+- **Not done, deliberately**: no "default address" concept — `res.partner` has none natively, and adding one (e.g. a computed flag) felt like scope creep for a first pass; the frontend just lists all saved addresses with no distinguished default. Company-level shared address books (multiple portal users under one company partner sharing addresses) also out of scope — this is strictly per-authenticated-partner, matching how the wishlist and cart already work.
+
 ## 2026-08-03 — Quality-review fixes: checkout stock validation, wishlist test coverage
 
 - **Context:** VARS asked for a security + quality review of this session's ecommerce work. Security review came back clean. Quality review found 4 issues; 3 were frontend-only (see `varsco_com`'s own history) and 1 was here.
