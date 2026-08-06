@@ -7,3 +7,5 @@ from . import shop
 from . import reviews
 from . import wishlist
 from . import addresses
+from . import newsletter
+from . import tracking

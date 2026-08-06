@@ -8,3 +8,5 @@ from . import test_shop_api
 from . import test_reviews_api
 from . import test_wishlist_api
 from . import test_addresses_api
+from . import test_newsletter_api
+from . import test_tracking_api
