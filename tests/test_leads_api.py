@@ -85,6 +85,179 @@ class TestLeadsApi(HttpCase):
         lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
         self.assertEqual(lead.type, "lead")
 
+    def test_subject_distinguishes_leads(self):
+        """Every lead used to be named "Web inquiry — {contact name}", so the
+        CRM list was a column of near-identical rows. The subject now leads
+        with what the buyer wants and what they asked about."""
+        response = self._post(
+            {
+                "name": "Jane Buyer",
+                "email": "jane@example.com",
+                "company": "Acme Ltd",
+                "message": "20 mton please",
+                "source": "product-quote-drawer",
+                "product_title": "Olive Flounder",
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertEqual(lead.name, "Quote — Olive Flounder — Acme Ltd")
+
+    def test_subject_falls_back_without_product_or_company(self):
+        response = self._post(
+            {
+                "name": "Jane Buyer",
+                "email": "jane@example.com",
+                "message": "hello there",
+                "source": "contact",
+                "topic": "Technical support",
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertEqual(lead.name, "Contact — Technical support — Jane Buyer")
+
+    def test_unknown_source_still_produces_a_readable_subject(self):
+        """A form added on the frontend must not need an Odoo deploy first."""
+        response = self._post(
+            {
+                "name": "Jane",
+                "email": "jane@example.com",
+                "message": "hello there",
+                "source": "some-new-form",
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertEqual(lead.name, "Some New Form — Jane")
+
+    def test_source_is_persisted_as_utm_source(self):
+        """Regression: `source` was in REQUIRED_FIELDS but was only rendered
+        into the description — it never reached the lead, so attribution
+        reporting was impossible and every lead shared one fixed medium."""
+        response = self._post(
+            {
+                "name": "Jane",
+                "email": "jane@example.com",
+                "message": "hello there",
+                "source": "horeca-middle-east",
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertTrue(lead.source_id)
+        self.assertEqual(lead.source_id.name, "HORECA")
+
+    def test_campaign_visit_overrides_form_attribution(self):
+        response = self._post(
+            {
+                "name": "Jane",
+                "email": "jane@example.com",
+                "message": "hello there",
+                "source": "contact",
+                "utm_source": "linkedin",
+                "utm_medium": "cpc",
+                "utm_campaign": "flounder-q3",
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertEqual(lead.source_id.name, "linkedin")
+        self.assertEqual(lead.medium_id.name, "cpc")
+        self.assertEqual(lead.campaign_id.name, "flounder-q3")
+
+    def test_country_is_mapped_to_country_id(self):
+        response = self._post(
+            {
+                "name": "Jane",
+                "email": "jane@example.com",
+                "message": "hello there",
+                "source": "contact",
+                "country": "Spain",
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertEqual(lead.country_id.name, "Spain")
+
+    def test_unknown_country_does_not_break_submission(self):
+        response = self._post(
+            {
+                "name": "Jane",
+                "email": "jane@example.com",
+                "message": "hello there",
+                "source": "contact",
+                "country": "Nowhereland",
+            },
+            token=self.token,
+        )
+        self.assertEqual(response.status_code, 201)
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertFalse(lead.country_id)
+
+    def test_submission_context_and_custom_fields_reach_the_note(self):
+        response = self._post(
+            {
+                "name": "Jane",
+                "email": "jane@example.com",
+                "message": "hello there",
+                "source": "product-quote-drawer",
+                "topic": "Frozen fillet",
+                "page_path": "/products/seafood/olive-flounder",
+                "page_section": "olive-flounder",
+                "locale": "tr",
+                "referrer_host": "www.google.com",
+                "utm_campaign": "flounder-q3",
+                "custom_fields": {"Size band": "500-600 g/pc", "Fins": "attached"},
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        for expected in (
+            "Submitted from",
+            "/products/seafood/olive-flounder",
+            "www.google.com",
+            "Requested specifications",
+            "Size band",
+            "500-600 g/pc",
+        ):
+            self.assertIn(expected, lead.description)
+
+    def test_custom_field_values_are_html_escaped(self):
+        """custom_fields is buyer-controlled and lands in an Html field
+        rendered to internal users — same stored-XSS surface as the message."""
+        response = self._post(
+            {
+                "name": "Jane",
+                "email": "jane@example.com",
+                "message": "hello there",
+                "source": "contact",
+                "custom_fields": {"<b>k</b>": "<script>alert(1)</script>"},
+            },
+            token=self.token,
+        )
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertNotIn("<script>", lead.description)
+        self.assertIn("&lt;script&gt;", lead.description)
+
+    def test_legacy_payload_without_new_fields_still_works(self):
+        """The frontend and this addon deploy independently; an older caller
+        sending only the original five fields must keep working."""
+        response = self._post(
+            {
+                "name": "Jane",
+                "email": "jane@example.com",
+                "company": "Buyer Co",
+                "message": "Interested in Artemia.",
+                "source": "request_quote",
+            },
+            token=self.token,
+        )
+        self.assertEqual(response.status_code, 201)
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertEqual(lead.name, "Request Quote — Buyer Co")
+        self.assertEqual(lead.type, "lead")
+
     def test_lead_description_is_formatted_and_escapes_html(self):
         response = self._post(
             {
