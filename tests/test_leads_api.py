@@ -282,3 +282,74 @@ class TestLeadsApi(HttpCase):
         # cart_summary lines rendered as a real list, not a single blob
         self.assertIn("Artemia Cysts (x2)", lead.description)
         self.assertIn("Fish Meal (x1)", lead.description)
+
+    def _visitor_linking_available(self):
+        """crm.lead.visitor_ids ships with `website_crm`, which this addon does
+        not depend on. Skip rather than fail where it is absent — the
+        controller is written to degrade the same way."""
+        if "visitor_ids" not in self.env["crm.lead"]._fields:
+            self.skipTest("website_crm not installed; visitor linkage unavailable")
+
+    def test_lead_links_to_the_visitor_that_browsed(self):
+        """The journey and the enquiry were being stored as unrelated facts:
+        /track recorded the pageviews, /leads recorded the lead, and nothing
+        joined them, so sales could not see what a buyer read before asking."""
+        self._visitor_linking_available()
+        token = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+        visitor = self.env["website.visitor"].sudo().create({
+            "access_token": token,
+            "website_id": self.env["website"].sudo().search([], limit=1).id,
+        })
+        response = self._post(
+            {
+                "name": "Jane Buyer",
+                "email": "jane@example.com",
+                "message": "Interested in Artemia cysts.",
+                "source": "request_quote",
+                "visitor_token": token,
+            },
+            token=self.token,
+        )
+        self.assertEqual(response.status_code, 201)
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertIn(visitor, lead.visitor_ids)
+
+    def test_unknown_visitor_token_creates_no_visitor(self):
+        """A token with no visitor behind it means the buyer never accepted
+        analytics. Minting one here would put a visitor with zero pageviews
+        into the report, so the lead is simply created unlinked."""
+        self._visitor_linking_available()
+        token = "ffffffffffffffffffffffffffffffff"
+        before = self.env["website.visitor"].sudo().search_count([])
+        response = self._post(
+            {
+                "name": "Jane Buyer",
+                "email": "jane@example.com",
+                "message": "Interested in Artemia cysts.",
+                "source": "request_quote",
+                "visitor_token": token,
+            },
+            token=self.token,
+        )
+        self.assertEqual(response.status_code, 201)
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertFalse(lead.visitor_ids)
+        self.assertEqual(self.env["website.visitor"].sudo().search_count([]), before)
+
+    def test_malformed_visitor_token_still_creates_the_lead(self):
+        """Odoo parses a non-hex access_token as a res.partner id, which raises
+        inside a computed field. A bad token must cost the linkage, never the
+        enquiry."""
+        response = self._post(
+            {
+                "name": "Jane Buyer",
+                "email": "jane@example.com",
+                "message": "Interested in Artemia cysts.",
+                "source": "request_quote",
+                "visitor_token": "../../etc/passwd",
+            },
+            token=self.token,
+        )
+        self.assertEqual(response.status_code, 201)
+        lead = self.env["crm.lead"].sudo().browse(json.loads(response.content)["lead_id"])
+        self.assertEqual(lead.email_from, "jane@example.com")

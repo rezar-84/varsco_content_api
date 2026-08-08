@@ -1,23 +1,14 @@
 import hmac
 import json
-import re
 from datetime import datetime
 
 from odoo import fields, http
 from odoo.http import request
 
-from .base import API_PREFIX
+from .base import API_PREFIX, VISITOR_TOKEN_RE
 
 MAX_EVENTS_PER_BATCH = 50
 MAX_URL_LENGTH = 500
-
-# website.visitor.access_token is overloaded by Odoo itself: a 32-character hex
-# string identifies an anonymous visitor, while any other value is parsed as a
-# res.partner id by website_visitor.py::_compute_partner_id, which calls
-# int(access_token). A token outside that shape therefore raises ValueError
-# inside a computed field during flush, turning every forwarded event into a
-# 500. The frontend must mint tokens in Odoo's anonymous shape.
-VISITOR_TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 class VarscoContentApiTracking(http.Controller):

@@ -1,6 +1,16 @@
+import re
+
 from odoo.http import request
 
 API_PREFIX = "/api/v1"
+
+# website.visitor.access_token is overloaded by Odoo itself: a 32-character hex
+# string identifies an anonymous visitor, while any other value is parsed as a
+# res.partner id by website_visitor.py::_compute_partner_id, which calls
+# int(access_token). A token outside that shape therefore raises ValueError
+# inside a computed field during flush. Lives here because both /track (which
+# creates visitors) and /leads (which links to them) must apply the same rule.
+VISITOR_TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 
 # Odoo's own res.country data doesn't always match the English name a form
 # visitor types — e.g. Odoo 19 stores Turkey's official name "Türkiye", not

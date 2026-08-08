@@ -6,7 +6,7 @@ from odoo import http
 from odoo.http import request
 from odoo.tools.mail import single_email_re
 
-from .base import API_PREFIX, resolve_country
+from .base import API_PREFIX, VISITOR_TOKEN_RE, resolve_country
 
 
 class VarscoContentApiLeads(http.Controller):
@@ -143,6 +143,35 @@ class VarscoContentApiLeads(http.Controller):
         return record.id
 
     @staticmethod
+    def _resolve_visitor(token):
+        """The website.visitor this submission belongs to, or None.
+
+        Looks up only — never creates. /track creates the visitor when it
+        forwards the pageviews; a token with no visitor behind it means the
+        buyer never consented to analytics, so there is no journey to attach
+        and minting an empty visitor would only add a phantom row with zero
+        pageviews to the visitor report.
+
+        crm.lead.visitor_ids comes from `website_crm`, which is not a
+        dependency of this addon — an installation without it gets a lead
+        with no linkage rather than an ImportError at request time. The token
+        shape is re-checked here because Odoo parses a non-hex access_token
+        as a res.partner id (see VISITOR_TOKEN_RE in base.py), and this
+        value arrives from the network.
+        """
+        token = (token or "").strip().lower()
+        if not VISITOR_TOKEN_RE.match(token):
+            return None
+        if "visitor_ids" not in request.env["crm.lead"]._fields:
+            return None
+        visitor = (
+            request.env["website.visitor"]
+            .sudo()
+            .search([("access_token", "=", token)], limit=1)
+        )
+        return visitor or None
+
+    @staticmethod
     def _format_description(payload):
         """A labeled HTML note for the lead's Notes tab instead of one plain
         paragraph. Every interpolated value is HTML-escaped — this is stored
@@ -260,6 +289,10 @@ class VarscoContentApiLeads(http.Controller):
         lang_id = self._resolve_lang(payload.get("locale"))
         if lang_id:
             values["lang_id"] = lang_id
+
+        visitor = self._resolve_visitor(payload.get("visitor_token"))
+        if visitor:
+            values["visitor_ids"] = [(4, visitor.id)]
 
         lead = request.env["crm.lead"].sudo().create(values)
         return request.make_json_response(
